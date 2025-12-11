@@ -1,0 +1,703 @@
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE LCD
+OBJECT MODULE PLACED IN .\Objects\lcd.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\src\lcd.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(..\Driver\inc;
+                    -..\Mdk;..\User\inc;..\Modbus;..\Driver\font) DEBUG OBJECTEXTEND PRINT(.\Listings\lcd.lst) TABS(2) OBJECT(.\Objects\lcd.o
+                    -bj)
+
+line level    source
+
+   1          #include "lcd.h"
+   2          #include "font_date.h"
+   3          
+   4          
+   5          //// LCD硬件复位
+   6          void LCD_Reset() {
+   7   1          // 复位时序
+   8   1          LCD_RST = 0;
+   9   1          Delay_ms(5);  
+  10   1          LCD_RST = 1;  
+  11   1          Delay_ms(200);
+  12   1      }
+  13          
+  14          
+  15          // LCD写数据函数
+  16          void LCD_WriteData(unsigned char write_data) {
+  17   1          LCD_CS0 = 0;       // 选择LCD
+  18   1          LCD_CD = 1;        // 设置为数据模式
+  19   1          LCD_WR = 0;        // 拉低写信号  
+  20   1          LVC245_OE = 0;      // 使能LVC245   
+  21   1          LCD_DATA = write_data;   // 输出数据
+  22   1          Delay_us(1);       // 延迟时间
+  23   1          LCD_WR = 1;        // 拉高写信号
+  24   1      //    LVC245_OE = 1;      // 禁用LVC245 
+  25   1          LCD_CS0 = 1;       // 取消选择LCD
+  26   1      }
+  27          
+  28          // LCD写命令函数
+  29          void LCD_WriteCmd(unsigned char cmd) {
+  30   1          LCD_CS0 = 0;       // 选择LCD
+  31   1          LCD_CD = 0;        // 设置为命令模式
+  32   1          LCD_WR = 0;        // 拉低写信号    
+  33   1          LVC245_OE = 0;      // 使能LVC245    
+  34   1          LCD_DATA = cmd;    // 输出命令
+  35   1          Delay_us(1);       // 延迟时间
+  36   1          LCD_WR = 1;        // 拉高写信号
+  37   1      //    LVC245_OE = 1;      // 禁用LVC245
+  38   1          LCD_CS0 = 1;       // 取消选择LCD
+  39   1      }
+  40          
+  41          // LCD读数据函数
+  42          unsigned char LCD_ReadData(void) {
+  43   1          unsigned char read_data;
+  44   1          
+  45   1          LCD_CS0 = 0;       // 选择LCD
+  46   1          LCD_CD = 1;        // 设置为数据模式
+  47   1          LCD_WR = 0;        // 拉低读信号    
+  48   1          LVC245_OE = 0;      // 使能LVC245    
+  49   1          Delay_us(1);       // 延迟时间
+  50   1          read_data = LCD_DATA;   // 读取数据
+  51   1          LCD_WR = 1;        // 拉高读信号
+  52   1      //    LVC245_OE = 1;      // 禁用LVC245    
+  53   1          LCD_CS0 = 1;       // 取消选择LCD
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 2   
+
+  54   1          
+  55   1          return read_data;
+  56   1      }
+  57          
+  58          
+  59          // 扫描整个LCD屏幕并填充数据
+  60          void lcdscan(unsigned char pixel_data)
+  61          {
+  62   1        unsigned int  i;
+  63   1          // 设置整个屏幕的起始地址
+  64   1          LCD_WriteCmd(0x60);  // 起始行 LSB
+  65   1          LCD_WriteCmd(0x70);  // 起始行 MSB  
+  66   1          LCD_WriteCmd(0x00);  // 起始列 LSB
+  67   1          LCD_WriteCmd(0x10);  // 起始列 MSB
+  68   1          
+  69   1          // 启用自动寻址模式（UC1698支持）
+  70   1          LCD_WriteCmd(0x89);  // 自动寻址模式
+  71   1          
+  72   1          // 循环写入所有像素数据 (15,360 字节)
+  73   1          for ( i = 0; i < 15360; i++) {
+  74   2              LCD_WriteData(pixel_data);
+  75   2          }
+  76   1          
+  77   1          LCD_WriteCmd(0x88);  // 停止自动寻址
+  78   1      }
+  79          
+  80          // LCD初始化函数
+  81          void LCD_Init() {
+  82   1      
+  83   1      
+  84   1      
+  85   1      
+  86   1            LCD_CS0 = 0;       // 选择LCD
+  87   1            LCD_Reset();  
+  88   1            LCD_WriteCmd(0xe2);     //内部指令复位
+  89   1          Delay_ms(5);
+  90   1          LCD_WriteCmd(0xeb);     //(26) 1/12电压比，硬件设计必须的
+  91   1          LCD_WriteCmd(0x2b);     //(6)  启用内部DC-DC
+  92   1          LCD_WriteCmd(0x25);     //(5)  温度补偿系数，根据实际使用环境调整
+  93   1          LCD_WriteCmd(0x81);     //(10) 对比度设置命令，第二字节为对比度值，0~255
+  94   1          LCD_WriteCmd(0X49);
+  95   1      
+  96   1          /*显示控制*/
+  97   1          LCD_WriteCmd(0xa4);     //(15)  启用或禁用全显示
+  98   1          LCD_WriteCmd(0xa6);     //(16)  正向显示(0xa7为反向显示)
+  99   1      
+ 100   1          /*LCD控制*/
+ 101   1          LCD_WriteCmd(0xc4);     //(18) COM扫描方向设置为COM160-C0, SEG扫描方向设置为SEG1-S240
+ 102   1          LCD_WriteCmd(0xa1);     //(14)  SEG方向设置
+ 103   1          LCD_WriteCmd(0xd1);     //(20) RGB-RGB-RGB-.....格式
+ 104   1          LCD_WriteCmd(0xd5);     //(21) 4k颜色模式，RRRR-GGGG-BBBB-RRRR-GGGG-BBBB
+ 105   1          LCD_WriteCmd(0x84);     //(11) 关闭部分显示
+ 106   1      
+ 107   1      
+ 108   1          /*(19)n-line inversion*/
+ 109   1          LCD_WriteCmd(0xc8);
+ 110   1          LCD_WriteCmd(0x10);     //设置n-line inversion参数
+ 111   1      
+ 112   1      
+ 113   1      
+ 114   1      
+ 115   1      
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 3   
+
+ 116   1      
+ 117   1      
+ 118   1      
+ 119   1      
+ 120   1      
+ 121   1      
+ 122   1          /*显示区域*/
+ 123   1          LCD_WriteCmd(0xf4);     //(30) 起始列
+ 124   1          LCD_WriteCmd(0x00);     //start from 0
+ 125   1          LCD_WriteCmd(0xf6);     //(32) 结束列
+ 126   1          LCD_WriteCmd(0x4f);     //end:240
+ 127   1      
+ 128   1          LCD_WriteCmd(0xf5);     //(31) 起始行
+ 129   1          LCD_WriteCmd(0x00);     // 0
+ 130   1          LCD_WriteCmd(0xf7);     //(32) 结束行
+ 131   1          LCD_WriteCmd(0x7F);     // 128
+ 132   1      
+ 133   1          LCD_WriteCmd(0xf8);     //(34) 扫描设置，显示区域在扫描方向上自动反转1
+ 134   1      
+ 135   1          LCD_WriteCmd(0x89);     //(12) 启用自动增量，在扫描方向上自动增量1      
+ 136   1          LCD_WriteCmd(0xad);     //(17) 设置显示模式，无灰度级的ON-OFF模式(正常显示模式)
+ 137   1      
+ 138   1          /*scroll line 与 RAM 映射关系*/
+ 139   1          LCD_WriteCmd(0x40);     //(8) 设置起始行
+ 140   1          LCD_WriteCmd(0x50);     //     无特殊意义
+ 141   1          LCD_WriteCmd(0xc4);     //(18) COM扫描方向设置为COM160-C0, SEG扫描方向设置为SEG1-S240
+ 142   1          LCD_WriteCmd(0x90);     //(13):  无特殊标记
+ 143   1          LCD_WriteCmd(0x00);
+ 144   1      
+ 145   1          /*设置显示区域*/
+ 146   1          LCD_WriteCmd(0x84);     //(11) 关闭部分显示
+ 147   1          LCD_WriteCmd(0xf1);     //(27) 设置结束行
+ 148   1          LCD_WriteCmd(0x9f);     // 160
+ 149   1          LCD_WriteCmd(0xf2);     //(28) 设置起始行
+ 150   1          LCD_WriteCmd(0);      //0
+ 151   1          LCD_WriteCmd(0xf3);     // (29) 设置结束列
+ 152   1          LCD_WriteCmd(127);      // 128    
+ 153   1          LCD_WriteCmd(0xad);     //(17) 设置显示模式，无灰度级的ON-OFF模式(正常显示模式)
+ 154   1      }
+ 155          
+ 156          
+ 157          
+ 158          // 设置显示位置
+ 159          void LCD_SetPosition(unsigned char page, unsigned int column) {
+ 160   1          // 设置页地址
+ 161   1      //    LCD_WriteCmd(UC1698_SET_PAGE_ADDR | (page & 0x0F));
+ 162   1      //    
+ 163   1      //    // 设置列地址
+ 164   1      //    LCD_WriteCmd(UC1698_SET_COLUMN_ADDR_L | (column & 0x0F));           // 低4位
+ 165   1      //    LCD_WriteCmd(UC1698_SET_COLUMN_ADDR_H | ((column >> 4) & 0x0F));   // 高4位
+ 166   1      }
+*** WARNING C280 IN LINE 159 OF ..\Driver\src\lcd.c: 'page': unreferenced local variable
+*** WARNING C280 IN LINE 159 OF ..\Driver\src\lcd.c: 'column': unreferenced local variable
+ 167          
+ 168          
+ 169          
+ 170          // 清空LCD屏幕
+ 171          void LCD_Clear(void) {
+ 172   1          lcdscan(0x00);  // 向整个屏幕写入0x00，实现清屏效果
+ 173   1      }
+ 174          
+ 175          // 在指定位置绘制一个像素点
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 4   
+
+ 176          // x: X坐标 (0-239)
+ 177          // y: Y坐标 (0-127)
+ 178          // color: 颜色 (0: 黑色, 非0: 白色)
+ 179          void LCD_DrawPixel(unsigned int x, unsigned char y, unsigned char color) {
+ 180   1          unsigned char col_lsb, col_msb;
+ 181   1          unsigned char row_lsb, row_msb;
+ 182   1          unsigned int column;
+ 183   1          unsigned char pixel_pos;
+ 184   1          unsigned char pixel_data[3];
+ 185   1          
+ 186   1          // 检查坐标是否超出范围
+ 187   1          if (x >= LCD_WIDTH || y >= LCD_HEIGHT) {
+ 188   2              return;
+ 189   2          }
+ 190   1          
+ 191   1          // 计算行地址（Y坐标反转）
+ 192   1          y = 127 - y;  // 反转Y坐标，使(0,0)位于左上角
+ 193   1          row_lsb = (y & 0x0F);  // 行地址低4位
+ 194   1          row_msb = ((y >> 4) & 0x0F);  // 行地址高4位
+ 195   1          
+ 196   1          // 计算列地址 - UC1698的4k颜色模式是每2个像素占用3个字节
+ 197   1          // 每个像素使用12位颜色（4位R，4位G，4位B）
+ 198   1          column = (x / 2) * 3;  // 列地址是字节索引，每2个像素对应3个字节
+ 199   1          pixel_pos = x % 2;  // 像素在2个像素中的位置（0或1）
+ 200   1          
+ 201   1          // 计算列地址的低4位和高4位
+ 202   1          col_lsb = (column & 0x0F);
+ 203   1          col_msb = ((column >> 4) & 0x0F);
+ 204   1          
+ 205   1          // 设置RAM地址控制
+ 206   1          LCD_WriteCmd(0x89);
+ 207   1          
+ 208   1          // 设置RAM地址 - 注意顺序：列地址低4位 -> 列地址高4位 -> 行地址低4位 -> 行地址高4位
+ 209   1          LCD_WriteCmd(col_lsb);  // 列地址低4位
+ 210   1          LCD_WriteCmd(0x10 | col_msb);  // 列地址高4位
+ 211   1          LCD_WriteCmd(0x60 | row_lsb);  // 行地址低4位
+ 212   1          LCD_WriteCmd(0x70 | row_msb);  // 行地址高4位
+ 213   1          
+ 214   1          // 读取当前的3个字节数据
+ 215   1          LCD_ReadData();  // 虚拟读取
+ 216   1          pixel_data[0] = LCD_ReadData();  // 读取第1个字节
+ 217   1          pixel_data[1] = LCD_ReadData();  // 读取第2个字节
+ 218   1          pixel_data[2] = LCD_ReadData();  // 读取第3个字节
+ 219   1          
+ 220   1          // 根据像素位置和颜色修改数据
+ 221   1          // UC1698的4k颜色模式：RRRR-GGGG-BBBB-RRRR-GGGG-BBBB
+ 222   1          // 字节1：像素0的R[3:0]（高4位），像素0的G[3:0]（低4位）
+ 223   1          // 字节2：像素0的B[3:0]（高4位），像素1的R[3:0]（低4位）
+ 224   1          // 字节3：像素1的G[3:0]（高4位），像素1的B[3:0]（低4位）
+ 225   1          if (color != 0) {
+ 226   2              // 白色：4位R, 4位G, 4位B都为1
+ 227   2              if (pixel_pos == 0) {
+ 228   3                  // 第一个像素（高12位）
+ 229   3                  pixel_data[0] |= 0xF0;  // R[3:0] 位于第1个字节的高4位
+ 230   3                  pixel_data[0] |= 0x0F;  // G[3:0] 位于第1个字节的低4位
+ 231   3                  pixel_data[1] |= 0xF0;  // B[3:0] 位于第2个字节的高4位
+ 232   3              } else {
+ 233   3                  // 第二个像素（低12位）
+ 234   3                  pixel_data[1] |= 0x0F;  // R[3:0] 位于第2个字节的低4位
+ 235   3                  pixel_data[2] |= 0xF0;  // G[3:0] 位于第3个字节的高4位
+ 236   3                  pixel_data[2] |= 0x0F;  // B[3:0] 位于第3个字节的低4位
+ 237   3              }
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 5   
+
+ 238   2          } else {
+ 239   2              // 黑色：4位R, 4位G, 4位B都为0
+ 240   2              if (pixel_pos == 0) {
+ 241   3                  // 第一个像素（高12位）
+ 242   3                  pixel_data[0] &= 0x0F;  // R[3:0] 位于第1个字节的高4位
+ 243   3                  pixel_data[0] &= 0xF0;  // G[3:0] 位于第1个字节的低4位
+ 244   3                  pixel_data[1] &= 0x0F;  // B[3:0] 位于第2个字节的高4位
+ 245   3              } else {
+ 246   3                  // 第二个像素（低12位）
+ 247   3                  pixel_data[1] &= 0xF0;  // R[3:0] 位于第2个字节的低4位
+ 248   3                  pixel_data[2] &= 0x0F;  // G[3:0] 位于第3个字节的高4位
+ 249   3                  pixel_data[2] &= 0xF0;  // B[3:0] 位于第3个字节的低4位
+ 250   3              }
+ 251   2          }
+ 252   1          
+ 253   1          // 重新设置RAM地址
+ 254   1          LCD_WriteCmd(0x89);
+ 255   1          LCD_WriteCmd(col_lsb);  // 列地址低4位
+ 256   1          LCD_WriteCmd(0x10 | col_msb);  // 列地址高4位
+ 257   1          LCD_WriteCmd(0x60 | row_lsb);  // 行地址低4位
+ 258   1          LCD_WriteCmd(0x70 | row_msb);  // 行地址高4位
+ 259   1          
+ 260   1          // 写入修改后的数据（3个字节）
+ 261   1          LCD_WriteData(pixel_data[0]);
+ 262   1          LCD_WriteData(pixel_data[1]);
+ 263   1          LCD_WriteData(pixel_data[2]);
+ 264   1          
+ 265   1          // 停止自动地址递增
+ 266   1          LCD_WriteCmd(0x88);
+ 267   1      }
+ 268          
+ 269          // 在两点之间绘制一条直线
+ 270          // x1, y1: 起始坐标
+ 271          // x2, y2: 结束坐标
+ 272          // color: 颜色 (0: 黑色, 非0: 白色)
+ 273          void LCD_DrawLine(unsigned int x1, unsigned char y1, unsigned int x2, unsigned char y2, unsigned char colo
+             -r) {
+ 274   1          int dx, dy, sx, sy, err, e2;
+ 275   1          
+ 276   1          // 计算x和y方向的差值
+ 277   1          dx = (x1 < x2) ? (x2 - x1) : (x1 - x2);
+ 278   1          dy = (y1 < y2) ? (y2 - y1) : (y1 - y2);
+ 279   1          
+ 280   1          // 确定步进方向
+ 281   1          sx = (x1 < x2) ? 1 : -1;
+ 282   1          sy = (y1 < y2) ? 1 : -1;
+ 283   1          
+ 284   1          // 误差值
+ 285   1          err = dx - dy;
+ 286   1          
+ 287   1          // 绘制每个像素点
+ 288   1          while (1) {
+ 289   2              // 绘制当前像素点
+ 290   2              LCD_DrawPixel(x1, y1, color);
+ 291   2              
+ 292   2              // 检查是否到达终点
+ 293   2              if (x1 == x2 && y1 == y2) {
+ 294   3                  break;
+ 295   3              }
+ 296   2              
+ 297   2              // 更新误差值
+ 298   2              e2 = 2 * err;
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 6   
+
+ 299   2              
+ 300   2              // 更新x坐标
+ 301   2              if (e2 > -dy) {
+ 302   3                  err -= dy;
+ 303   3                  x1 += sx;
+ 304   3              }
+ 305   2              
+ 306   2              // 更新y坐标
+ 307   2              if (e2 < dx) {
+ 308   3                  err += dx;
+ 309   3                  y1 += sy;
+ 310   3              }
+ 311   2          }
+ 312   1      }
+ 313          
+ 314          // 绘制一个矩形边框
+ 315          // x, y: 左上角坐标
+ 316          // width: 矩形宽度
+ 317          // height: 矩形高度
+ 318          // color: 颜色 (0: 黑色, 非0: 白色)
+ 319          void LCD_DrawRect(unsigned int x, unsigned char y, unsigned int width, unsigned char height, unsigned char
+             - color) {
+ 320   1          unsigned int x2, i;
+ 321   1          unsigned char y2, j;
+ 322   1          
+ 323   1          // 计算右下角坐标
+ 324   1          x2 = x + width - 1;
+ 325   1          y2 = y + height - 1;
+ 326   1          
+ 327   1          // 检查坐标是否超出范围
+ 328   1          if (x >= LCD_WIDTH || y >= LCD_HEIGHT || x2 >= LCD_WIDTH || y2 >= LCD_HEIGHT) {
+ 329   2              return;
+ 330   2          }
+ 331   1          
+ 332   1          // 绘制上边
+ 333   1          LCD_DrawLine(x, y, x2, y, color);
+ 334   1          
+ 335   1          // 绘制右边
+ 336   1          LCD_DrawLine(x2, y, x2, y2, color);
+ 337   1          
+ 338   1          // 绘制下边
+ 339   1          LCD_DrawLine(x2, y2, x, y2, color);
+ 340   1          
+ 341   1          // 绘制左边
+ 342   1          LCD_DrawLine(x, y2, x, y, color);
+ 343   1      }
+*** WARNING C280 IN LINE 320 OF ..\Driver\src\lcd.c: 'i': unreferenced local variable
+*** WARNING C280 IN LINE 321 OF ..\Driver\src\lcd.c: 'j': unreferenced local variable
+ 344          
+ 345          // 绘制一个填充矩形
+ 346          // x, y: 左上角坐标
+ 347          // width: 矩形宽度
+ 348          // height: 矩形高度
+ 349          // color: 颜色 (0: 黑色, 非0: 白色)
+ 350          void LCD_FillRect(unsigned int x, unsigned char y, unsigned int width, unsigned char height, unsigned char
+             - color) {
+ 351   1          unsigned int x2, i;
+ 352   1          unsigned char y2, j;
+ 353   1          
+ 354   1          // 计算右下角坐标
+ 355   1          x2 = x + width - 1;
+ 356   1          y2 = y + height - 1;
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 7   
+
+ 357   1          
+ 358   1          // 检查坐标是否超出范围
+ 359   1          if (x >= LCD_WIDTH || y >= LCD_HEIGHT || x2 >= LCD_WIDTH || y2 >= LCD_HEIGHT) {
+ 360   2              return;
+ 361   2          }
+ 362   1          
+ 363   1          // 绘制每个像素点
+ 364   1          for (j = y; j <= y2; j++) {
+ 365   2              for (i = x; i <= x2; i++) {
+ 366   3                  LCD_DrawPixel(i, j, color);
+ 367   3              }
+ 368   2          }
+ 369   1      }
+ 370          
+ 371          
+ 372          // 扩展的words函数，支持多种字体和反显
+ 373          // 功能说明：
+ 374          // x: 起始x坐标
+ 375          // y: 起始y坐标
+ 376          // type: 字体类型 (1:6x8, 2:16x8, 3:16x16汉字)
+ 377          // ch: 要显示的字符
+ 378          // inverse: 是否反显 (0:正常, 1:反显)
+ 379          void words(unsigned char x, unsigned char y, unsigned char type, unsigned char inverse, unsigned char ch) 
+             -{
+ 380   1          unsigned char *p;
+ 381   1          unsigned char i, k, j, m, n, l, x0;
+ 382   1          unsigned char dat0, dat1, dat2, dat3, dat4, dat5, dat6;
+ 383   1          unsigned char dat6_col7, dat7_col8, dat8_col9;  // 用于16x9字体显示时的变量
+ 384   1          unsigned char inv_mask = inverse ? 0xFF : 0x00;  // 反显掩码
+ 385   1        
+ 386   1          x = 0x00 + x;  // 每个地址对应3个像素点
+ 387   1          x0 = 0x00 | (x & 0x0F);
+ 388   1          x = 0x10 | ((x & 0xF0) >> 4);
+ 389   1          
+ 390   1          // 根据字体类型和字符选择对应的字模数据
+ 391   1          if (type == 1) {  // 6x8字体
+ 392   2              p = (unsigned char*)F8X6[ch - 32];
+ 393   2          } else if (type == 2) {  // 16x8字体
+ 394   2              p = (unsigned char*)F16X9[ch - 32];
+ 395   2          } else if (type == 3) {  // 16x16汉字
+ 396   2              // 16x16汉字，从Hzk数组中获取字模数据
+ 397   2              // 由于Hzk是FONT_DATA类型的数组，需要取dat字段
+ 398   2              p = (unsigned char*)Hzk[ch - 32].dat;
+ 399   2          }
+ 400   1          
+ 401   1          // 6x8字体 (F8X6)
+ 402   1          if (type == 1) {
+ 403   2             // 6x8字体：1页，每页6字节
+ 404   2              for (i = 0; i < 1; i++) {
+ 405   3                  n = i * 6;  // 每页6字节
+ 406   3                  
+ 407   3                  for (j = 0; j < 8; j++) {  // 每页8行
+ 408   4                      m = i * 8 + j;
+ 409   4                      LCD_WriteCmd(0x89);
+ 410   4                      LCD_WriteCmd(x0);
+ 411   4                      LCD_WriteCmd(x);
+ 412   4                      LCD_WriteCmd(0x60 | ((y + m) & 0x0F));
+ 413   4                      LCD_WriteCmd(0x70 | (((y + m) & 0xF0) >> 4));
+ 414   4                      
+ 415   4                      // 6x8: 每页1次循环 (6字节)
+ 416   4                      for (k = 0; k < 1; k++) {
+ 417   5                          l = k * 6 + n;  // 每次处理6字节
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 8   
+
+ 418   5                          
+ 419   5                          dat6 = 0x01 << j;
+ 420   5                          
+ 421   5                          // 第1-2字节处理 (6x8只需要6字节，转换为3个字节)
+ 422   5                          dat0 = (*(p + l)) & dat6;
+ 423   5                          dat0 = dat0 >> j;
+ 424   5                          dat0 <<= 7;
+ 425   5                          
+ 426   5                          dat1 = (*(p + l + 1)) & dat6;
+ 427   5                          dat1 = dat1 >> j;
+ 428   5                          dat1 <<= 3;
+ 429   5                          
+ 430   5                          dat2 = (*(p + l + 2)) & dat6;
+ 431   5                          dat2 = dat2 >> j;
+ 432   5                          dat2 <<= 7;
+ 433   5                          
+ 434   5                          dat3 = (*(p + l + 3)) & dat6;
+ 435   5                          dat3 = dat3 >> j;
+ 436   5                          dat3 <<= 3;
+ 437   5                          
+ 438   5                          dat4 = (*(p + l + 4)) & dat6;
+ 439   5                          dat4 = dat4 >> j;
+ 440   5                          dat4 <<= 7;
+ 441   5                          
+ 442   5                          dat5 = (*(p + l + 5)) & dat6;
+ 443   5                          dat5 = dat5 >> j;
+ 444   5                          dat5 <<= 3;
+ 445   5                          
+ 446   5                          // 写入数据到相应位置
+ 447   5                          LCD_WriteData((dat0 | dat1) ^ inv_mask);
+ 448   5                          LCD_WriteData((dat2 | dat3) ^ inv_mask);
+ 449   5                          LCD_WriteData((dat4 | dat5) ^ inv_mask);
+ 450   5                      }
+ 451   4                      LCD_WriteCmd(0x88);
+ 452   4                  }
+ 453   3              }
+ 454   2          }
+ 455   1          // 16x9字体 (F16X9)
+ 456   1          else if (type == 2) {
+ 457   2              // 参考UC1698C语言.c中的数据结构实现16x9字体显示
+ 458   2              // 16x9字体：每个字符9列16行，共18字节数据
+ 459   2              // 16行分为2页，每页8行，每页9字节数据
+ 460   2              for (i = 0; i < 2; i++) {  // 16行分为2页，每页8行
+ 461   3                  n = i * 9;  // 每页9字节数据
+ 462   3                  
+ 463   3                  for (j = 0; j < 8; j++) {  // 每页8行
+ 464   4                      m = i * 8 + j;  // 当前页偏移
+ 465   4                      
+ 466   4                      // 设置RAM地址
+ 467   4                      LCD_WriteCmd(0x89);
+ 468   4                      LCD_WriteCmd(x0);
+ 469   4                      LCD_WriteCmd(x);
+ 470   4                      LCD_WriteCmd(0x60 | ((y + m) & 0x0F));  // 行地址 LSB
+ 471   4                      LCD_WriteCmd(0x70 | (((y + m) & 0xF0) >> 4));  // 行地址 MSB
+ 472   4                      
+ 473   4                      dat6 = 0x01 << j;  // 取数据对应位
+ 474   4                      
+ 475   4                      // 处理第1-3列，对应3字节数据
+ 476   4                      dat0 = (*(p + n)) & dat6;
+ 477   4                      dat0 = dat0 >> j;
+ 478   4                      dat0 <<= 7;
+ 479   4                      
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 9   
+
+ 480   4                      dat1 = (*(p + n + 1)) & dat6;
+ 481   4                      dat1 = dat1 >> j;
+ 482   4                      dat1 <<= 3;
+ 483   4                      
+ 484   4                      dat2 = (*(p + n + 2)) & dat6;
+ 485   4                      dat2 = dat2 >> j;
+ 486   4                      dat2 <<= 7;
+ 487   4                      
+ 488   4                      // 处理第4-6列，对应3字节数据
+ 489   4                      dat3 = (*(p + n + 3)) & dat6;
+ 490   4                      dat3 = dat3 >> j;
+ 491   4                      dat3 <<= 3;
+ 492   4                      
+ 493   4                      dat4 = (*(p + n + 4)) & dat6;
+ 494   4                      dat4 = dat4 >> j;
+ 495   4                      dat4 <<= 7;
+ 496   4                      
+ 497   4                      dat5 = (*(p + n + 5)) & dat6;
+ 498   4                      dat5 = dat5 >> j;
+ 499   4                      dat5 <<= 3;
+ 500   4                      
+ 501   4                      // 处理第7-9列，对应3字节数据
+ 502   4                      dat6_col7 = (*(p + n + 6)) & dat6;
+ 503   4                      dat6_col7 = dat6_col7 >> j;
+ 504   4                      
+ 505   4                      dat7_col8 = (*(p + n + 7)) & dat6;
+ 506   4                      dat7_col8 = dat7_col8 >> j;
+ 507   4                      
+ 508   4                      dat8_col9 = (*(p + n + 8)) & dat6;
+ 509   4                      dat8_col9 = dat8_col9 >> j;
+ 510   4                      
+ 511   4                      // 将9列数据转换为UC1698需要的格式
+ 512   4                      // 按照UC1698的存储格式，每2列合并为1个字节
+ 513   4                      LCD_WriteData((dat0 | dat1) ^ inv_mask);  // 第1-2列
+ 514   4                      LCD_WriteData((dat2 | dat3) ^ inv_mask);  // 第3-4列，修改了第4列的问题
+ 515   4                      LCD_WriteData((dat4 | dat5) ^ inv_mask);  // 第5-6列
+ 516   4                      // 第7-8列合并为一个字节，修改了第7列的问题
+ 517   4                      LCD_WriteData(((dat6_col7 << 7) | (dat7_col8 << 3)) ^ inv_mask);
+ 518   4                      // 第9列为单独的一个字节
+ 519   4                      LCD_WriteData((dat8_col9 << 7) ^ inv_mask);
+ 520   4                      
+ 521   4                      LCD_WriteCmd(0x88);  // 结束当前行的写入
+ 522   4                  }
+ 523   3              }
+ 524   2          }
+ 525   1          // 16x16汉字 (Hzk)
+ 526   1          else if (type == 3) {
+ 527   2              // 16x16汉字：2页 (16/8=2), 每页16字节
+ 528   2              for (i = 0; i < 2; i++) {
+ 529   3                  n = i * 16;  // 每页16字节
+ 530   3                  
+ 531   3                  for (j = 0; j < 8; j++) {  // 每页8行
+ 532   4                      m = i * 8 + j;
+ 533   4                      LCD_WriteCmd(0x89);
+ 534   4                      LCD_WriteCmd(x0);
+ 535   4                      LCD_WriteCmd(x);
+ 536   4                      LCD_WriteCmd(0x60 | ((y + m) & 0x0F));
+ 537   4                      LCD_WriteCmd(0x70 | (((y + m) & 0xF0) >> 4));
+ 538   4                      
+ 539   4                      // 16x16: 每页4次循环 (16字节/4=4)
+ 540   4                      for (k = 0; k < 4; k++) {
+ 541   5                          l = k * 4 + n;  // 每次处理4字节
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 10  
+
+ 542   5                          
+ 543   5                          dat6 = 0x01 << j;
+ 544   5                          
+ 545   5                          // 第1-2字节处理
+ 546   5                          dat0 = (*(p + l)) & dat6;
+ 547   5                          dat0 = dat0 >> j;
+ 548   5                          dat0 <<= 7;
+ 549   5                          
+ 550   5                          dat1 = (*(p + l + 1)) & dat6;
+ 551   5                          dat1 = dat1 >> j;
+ 552   5                          dat1 <<= 3;
+ 553   5                          
+ 554   5                          // 第3-4字节处理
+ 555   5                          dat2 = (*(p + l + 2)) & dat6;
+ 556   5                          dat2 = dat2 >> j;
+ 557   5                          dat2 <<= 7;
+ 558   5                          
+ 559   5                          dat3 = (*(p + l + 3)) & dat6;
+ 560   5                          dat3 = dat3 >> j;
+ 561   5                          dat3 <<= 3;
+ 562   5                          
+ 563   5                          // 写入数据到相应位置
+ 564   5                          LCD_WriteData((dat0 | dat1) ^ inv_mask);
+ 565   5                          LCD_WriteData((dat2 | dat3) ^ inv_mask);
+ 566   5                      }
+ 567   4                      LCD_WriteCmd(0x88);
+ 568   4                  }
+ 569   3              }
+ 570   2          }
+ 571   1      }
+ 572          
+ 573          // 在指定位置显示一个字符
+ 574          // x: 起始x坐标
+ 575          // y: 起始y坐标
+ 576          // ch: 要显示的字符
+ 577          // disp_size: 显示大小(1=6x8点阵, 2=16x8点阵, 3=16x16点阵)
+ 578          // inverse: 反显控制(0=正常显示, 1=反显)
+ 579          void LCD_DisplayChar(unsigned int x, unsigned char y, char ch, unsigned char disp_size, unsigned char inve
+             -rse) {
+ 580   1          unsigned char uc_ch = (unsigned char)ch;
+ 581   1          
+ 582   1          // 直接调用words函数显示单个字符
+ 583   1          words(x, y, disp_size, inverse, uc_ch);
+ 584   1      }
+ 585          
+ 586          // 在指定位置显示一个字符串
+ 587          // x: 起始x坐标
+ 588          // y: 起始y坐标
+ 589          // str: 要显示的字符串
+ 590          // disp_size: 显示大小(1=6x8点阵, 2=16x8点阵, 3=16x16点阵)
+ 591          // inverse: 反显控制(0=正常显示, 1=反显)
+ 592          void LCD_DisplayString(unsigned int x, unsigned char y, char *str, unsigned char disp_size, unsigned char 
+             -inverse) {
+ 593   1          unsigned int char_width = 0;
+ 594   1          unsigned int current_x = x;
+ 595   1          unsigned char i = 0;
+ 596   1          
+ 597   1          // ??????????????????????
+ 598   1          switch (disp_size) {
+ 599   2              case 1:  // 6??8????
+ 600   2                  char_width = 6;
+ 601   2                  break;
+C51 COMPILER V9.60.0.0   LCD                                                               12/11/2025 10:35:24 PAGE 11  
+
+ 602   2              case 2:  // 16??8????
+ 603   2                  char_width = 9;  // 16??9????????????9????
+ 604   2                  break;
+ 605   2              case 3:  // 16??16????
+ 606   2                  char_width = 16;
+ 607   2                  break;
+ 608   2              default:
+ 609   2                  return;
+ 610   2          }
+ 611   1          
+ 612   1          // ??????????????
+ 613   1          while (str[i] != '\0') {
+ 614   2              // ?????????
+ 615   2              LCD_DisplayChar(current_x, y, str[i], disp_size, inverse);
+ 616   2              
+ 617   2              // ??????????????λ??
+ 618   2              current_x += char_width + 1;  // ???????1????
+ 619   2              
+ 620   2              // ??????????????
+ 621   2              if (current_x >= LCD_WIDTH) {
+ 622   3                  break;
+ 623   3              }
+ 624   2              
+ 625   2              i++;
+ 626   2          }
+ 627   1      }
+ 628          
+ 629          
+ 630          
+ 631          
+ 632          
+ 633          
+ 634          
+ 635          
+ 636          
+ 637          
+ 638          
+ 639          
+ 640          
+ 641          
+ 642          
+ 643          
+ 644          
+ 645          
+ 646          
+ 647          
+ 648          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3326    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----     107
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  4 WARNING(S),  0 ERROR(S)

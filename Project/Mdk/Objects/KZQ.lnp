@@ -1,0 +1,14 @@
+".\Objects\system.obj",
+".\Objects\main.obj",
+".\Objects\lcd_test.obj",
+".\Objects\lcd.obj",
+".\Objects\bsp.obj",
+".\Objects\delay.obj",
+".\Objects\fm31256.obj",
+".\Objects\time.obj",
+".\Objects\uart.obj",
+".\Objects\modbus.obj",
+".\Objects\font_date.obj" 
+TO ".\Objects\KZQ" 
+PRINT(".\Listings\KZQ.m51") RAMSIZE(256) 
+DISABLEWARNING (16) 

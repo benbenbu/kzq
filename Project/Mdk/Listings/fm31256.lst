@@ -1,0 +1,813 @@
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE FM31256
+OBJECT MODULE PLACED IN .\Objects\fm31256.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\src\fm31256.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(..\Driver\
+                    -inc;..\Mdk;..\User\inc;..\Modbus;..\Driver\font) DEBUG OBJECTEXTEND PRINT(.\Listings\fm31256.lst) TABS(2) OBJECT(.\Objec
+                    -ts\fm31256.obj)
+
+line level    source
+
+   1          
+   2          #include "fm31256.h"
+   3          
+   4          
+   5          
+   6          
+   7          
+   8          
+   9          // 软件SPI时钟延时
+  10          void spi_delay() {
+  11   1          _nop_(); _nop_(); _nop_(); _nop_(); // 延时几个机器周期
+  12   1      }
+  13          
+  14          // 软件SPI发送一个字节
+  15          void spi_send_byte(uint8_t send_data) {
+  16   1          uint8_t i;
+  17   1          for(i = 0; i < 8; i++) {
+  18   2              SPI_SCK = 0;
+  19   2              if(send_data & 0x80) {
+  20   3                  SPI_MOSI = 1;
+  21   3              } else {
+  22   3                  SPI_MOSI = 0;
+  23   3              }
+  24   2              send_data <<= 1;
+  25   2              spi_delay();
+  26   2              SPI_SCK = 1;
+  27   2              spi_delay();
+  28   2          }
+  29   1          SPI_SCK = 0; // 保持时钟低电平
+  30   1      }
+  31          
+  32          // 软件SPI接收一个字节
+  33          uint8_t spi_receive_byte() {
+  34   1          uint8_t i;
+  35   1          uint8_t send_data = 0;
+  36   1          
+  37   1          for(i = 0; i < 8; i++) {
+  38   2              SPI_SCK = 0;
+  39   2              spi_delay();
+  40   2              SPI_SCK = 1;
+  41   2              send_data <<= 1;
+  42   2              if(SPI_MISO) {
+  43   3                  send_data |= 0x01;
+  44   3              }
+  45   2              spi_delay();
+  46   2          }
+  47   1          SPI_SCK = 0; // 保持时钟低电平
+  48   1          return send_data;
+  49   1      }
+  50          
+  51          // 软件SPI发送接收字节（全双工）
+  52          uint8_t spi_transfer_byte(uint8_t send_data) {
+  53   1          uint8_t i;
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 2   
+
+  54   1          uint8_t receive = 0;
+  55   1          
+  56   1          for(i = 0; i < 8; i++) {
+  57   2              SPI_SCK = 0;
+  58   2              if(send_data & 0x80) {
+  59   3                  SPI_MOSI = 1;
+  60   3              } else {
+  61   3                  SPI_MOSI = 0;
+  62   3              }
+  63   2              send_data <<= 1;
+  64   2              spi_delay();
+  65   2              SPI_SCK = 1;
+  66   2              receive <<= 1;
+  67   2              if(SPI_MISO) {
+  68   3                  receive |= 0x01;
+  69   3              }
+  70   2              spi_delay();
+  71   2          }
+  72   1          SPI_SCK = 0; // 保持时钟低电平
+  73   1          return receive;
+  74   1      }
+  75          
+  76          
+  77          // CRC16校验计算
+  78          uint16_t calculate_crc16(const uint8_t *send_data, uint32_t length) {
+  79   1          uint16_t crc = 0xFFFF;
+  80   1          uint32_t i;
+  81   1          uint8_t j;   
+  82   1          for(i = 0; i < length; i++) {
+  83   2              crc ^= send_data[i];
+  84   2      
+  85   2              for(j = 0; j < 8; j++) {
+  86   3                  if(crc & 0x0001) {
+  87   4                      crc = (crc >> 1) ^ 0xA001; // CRC16-IBM多项式
+  88   4                  } else {
+  89   4                      crc >>= 1;
+  90   4                  }
+  91   3              }
+  92   2          }
+  93   1          return crc;
+  94   1      }
+  95          
+  96          // BCD码转换为二进制
+  97          uint8_t bcd_to_bin(uint8_t bcd) {
+  98   1          return ((bcd >> 4) * 10) + (bcd & 0x0F);
+  99   1      }
+ 100          
+ 101          // 二进制转换为BCD码
+ 102          uint8_t bin_to_bcd(uint8_t bin) {
+ 103   1          return ((bin / 10) << 4) + (bin % 10);
+ 104   1      }
+ 105          
+ 106          // 获取当前时间（从存储器读取）
+ 107          bool get_current_time(time_struct *time) {
+ 108   1          // 这里假设时间存储在FRAM的最后几个字节，或通过RTC芯片获取
+ 109   1          // 为了简化，这里直接返回当前时间（实际应用中应从RTC获取）
+ 110   1          time->second = 0;
+ 111   1          time->minute = 0;
+ 112   1          time->hour = 0;
+ 113   1          time->day = 1;
+ 114   1          time->month = 1;
+ 115   1          time->year = 23; // 2023年
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 3   
+
+ 116   1          return 1;
+ 117   1      }
+ 118          
+ 119          // 设置当前时间（保存到存储器）
+ 120          void set_current_time(const time_struct *time) {
+ 121   1          // 实际应用中应保存到RTC或特定存储位置
+ 122   1      }
+*** WARNING C280 IN LINE 120 OF ..\Driver\src\fm31256.c: 'time': unreferenced local variable
+ 123          
+ 124          // 更新时间（递增一秒）
+ 125          void update_time() {
+ 126   1          // 实际应用中由定时器中断处理
+ 127   1      }
+ 128          
+ 129          // FM31256初始化
+ 130          bool fm31256_init() {
+ 131   1           uint8_t status=0;
+ 132   1          // 设置控制引脚初始状态
+ 133   1          FM31256_CS = 1;   // CS拉高
+ 134   1          FM31256_HOLD = 1; // HOLD拉高
+ 135   1          FM31256_WP = 0;   // WP拉低（允许写入）
+ 136   1          
+ 137   1          // 初始化SPI接口
+ 138   1          SPI_MOSI = 0;
+ 139   1          SPI_SCK = 0;
+ 140   1          
+ 141   1          // 短暂延时让设备稳定
+ 142   1          Delay_ms(10);
+ 143   1          
+ 144   1          // 检查设备是否响应
+ 145   1          status = fm31256_read_status();
+ 146   1          if(status != 0xFF) {
+ 147   2              return 1;
+ 148   2          } else {
+ 149   2              return 0;
+ 150   2          }
+ 151   1      }
+ 152          
+ 153          // 读取状态寄存器（带重试机制）
+ 154          uint8_t fm31256_read_status_with_retry() {
+ 155   1          uint8_t status = 0;
+ 156   1          uint8_t retries = 0;
+ 157   1          
+ 158   1          while(retries < FM31256_RETRY_COUNT) {
+ 159   2              FM31256_CS = 0;           // CS拉低
+ 160   2              spi_send_byte(FM31256_CMD_RDSR); // 发送读状态寄存器命令
+ 161   2              status = spi_receive_byte();     // 读取状态值
+ 162   2              FM31256_CS = 1;           // CS拉高
+ 163   2              
+ 164   2              // 简单验证：如果读取到的状态值在合理范围内，认为读取成功
+ 165   2              if(status <= 0x03) { // WIP和WEL位组合不会超过0x03
+ 166   3                  break;
+ 167   3              }
+ 168   2              
+ 169   2              retries++;
+ 170   2              Delay_us(10); // 短暂延时后重试
+ 171   2          }
+ 172   1          
+ 173   1          return status;
+ 174   1      }
+ 175          
+ 176          // 读取状态寄存器
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 4   
+
+ 177          uint8_t fm31256_read_status() {
+ 178   1          return fm31256_read_status_with_retry();
+ 179   1      }
+ 180          
+ 181          // 写入状态寄存器（带验证）
+ 182          void fm31256_write_status_verified(uint8_t status) {
+ 183   1          uint8_t retries = 0;
+ 184   1          bool success = 0;
+ 185   1          uint8_t readback=0;   
+ 186   1          while(retries < FM31256_RETRY_COUNT && !success) {
+ 187   2              fm31256_write_enable();           // 使能写操作
+ 188   2              
+ 189   2              FM31256_CS = 0;           // CS拉低
+ 190   2              spi_send_byte(FM31256_CMD_WRSR); // 发送写状态寄存器命令
+ 191   2              spi_send_byte(status);           // 写入状态值
+ 192   2              FM31256_CS = 1;           // CS拉高
+ 193   2              
+ 194   2              fm31256_wait_write_complete();    // 等待写操作完成
+ 195   2              
+ 196   2              // 验证写入是否成功
+ 197   2              readback = fm31256_read_status();
+ 198   2              if(readback == status) {
+ 199   3                  success = 1;
+ 200   3              } else {
+ 201   3                  retries++;
+ 202   3                  Delay_us(100); // 等待后重试
+ 203   3              }
+ 204   2          }
+ 205   1      }
+ 206          
+ 207          // 使能写操作（带验证）
+ 208          void fm31256_write_enable_verified() {
+ 209   1          uint8_t retries = 0;
+ 210   1          bool success = 0;
+ 211   1          uint8_t status=0;    
+ 212   1          while(retries < FM31256_RETRY_COUNT && !success) {
+ 213   2              FM31256_CS = 0;           // CS拉低
+ 214   2              spi_send_byte(FM31256_CMD_WREN); // 发送写使能命令
+ 215   2              FM31256_CS = 1;           // CS拉高
+ 216   2              
+ 217   2              // 验证WEL位是否被设置
+ 218   2              status = fm31256_read_status();
+ 219   2              if(status & FM31256_STATUS_WEL) {
+ 220   3                  success = 1;
+ 221   3              } else {
+ 222   3                  retries++;
+ 223   3                  Delay_us(100); // 等待后重试
+ 224   3              }
+ 225   2          }
+ 226   1      }
+ 227          
+ 228          // 使能写操作
+ 229          void fm31256_write_enable() {
+ 230   1          fm31256_write_enable_verified();
+ 231   1      }
+ 232          
+ 233          // 禁止写操作（带验证）
+ 234          void fm31256_write_disable_verified() {
+ 235   1          uint8_t retries = 0;
+ 236   1          bool success = false;
+ 237   1          uint8_t status=0;   
+ 238   1          while(retries < FM31256_RETRY_COUNT && !success) {
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 5   
+
+ 239   2              FM31256_CS = 0;           // CS拉低
+ 240   2              spi_send_byte(FM31256_CMD_WRDI); // 发送写禁止命令
+ 241   2              FM31256_CS = 1;           // CS拉高
+ 242   2              
+ 243   2              // 验证WEL位是否被清除
+ 244   2              status = fm31256_read_status();
+ 245   2              if(!(status & FM31256_STATUS_WEL)) {
+ 246   3                  success = 1;
+ 247   3              } else {
+ 248   3                  retries++;
+ 249   3                  Delay_us(100); // 等待后重试
+ 250   3              }
+ 251   2          }
+ 252   1      }
+ 253          
+ 254          // 禁止写操作
+ 255          void fm31256_write_disable() {
+ 256   1          fm31256_write_disable_verified();
+ 257   1      }
+ 258          
+ 259          // 等待写操作完成（带超时）
+ 260          void fm31256_wait_write_complete() {
+ 261   1          uint16_t timeout = 10000; // 10ms超时
+ 262   1          while((fm31256_read_status() & FM31256_STATUS_WIP) && timeout > 0) {
+ 263   2              Delay_us(1);
+ 264   2              timeout--;
+ 265   2          }
+ 266   1      }
+ 267          
+ 268          // 读取数据（带重试和校验）
+ 269          bool fm31256_read_data_with_retry(uint32_t address, uint8_t *buffer, uint32_t length) {
+ 270   1        
+ 271   1          uint8_t retries = 0;
+ 272   1          bool success = 0; 
+ 273   1          uint32_t i;
+ 274   1          bool match = 1; 
+ 275   1          if(address + length > FM31256_CAPACITY) {
+ 276   2              return 0;
+ 277   2          }
+ 278   1          
+ 279   1      
+ 280   1          
+ 281   1          while(retries < FM31256_RETRY_COUNT && !success) {
+ 282   2              FM31256_CS = 0;           // CS拉低
+ 283   2              
+ 284   2              spi_send_byte(FM31256_CMD_READ);        // 发送读命令
+ 285   2              spi_send_byte((address >> 16) & 0xFF);  // 发送地址高位
+ 286   2              spi_send_byte((address >> 8) & 0xFF);   // 发送地址中位
+ 287   2              spi_send_byte(address & 0xFF);          // 发送地址低位
+ 288   2              
+ 289   2      
+ 290   2              for(i = 0; i < length; i++) {
+ 291   3                  buffer[i] = spi_receive_byte();     // 读取数据
+ 292   3              }
+ 293   2              
+ 294   2              FM31256_CS = 1;           // CS拉高
+ 295   2              
+ 296   2              // 进行二次读取验证（读取前几个字节）
+ 297   2              if(length > 0) {
+ 298   3                  uint8_t verify_buffer[4];
+ 299   3                  uint32_t verify_len = (length < 4) ? length : 4;
+ 300   3                  
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 6   
+
+ 301   3                  FM31256_CS = 0;           // CS拉低
+ 302   3                  spi_send_byte(FM31256_CMD_READ);        // 发送读命令
+ 303   3                  spi_send_byte((address >> 16) & 0xFF);  // 发送地址高位
+ 304   3                  spi_send_byte((address >> 8) & 0xFF);   // 发送地址中位
+ 305   3                  spi_send_byte(address & 0xFF);          // 发送地址低位
+ 306   3                  
+ 307   3                  for(i = 0; i < verify_len; i++) {
+ 308   4                      verify_buffer[i] = spi_receive_byte(); // 读取验证数据
+ 309   4                  }
+ 310   3                  
+ 311   3                  FM31256_CS = 1;           // CS拉高
+ 312   3                  
+ 313   3                  // 比较原始读取和验证读取的数据
+ 314   3      ;
+ 315   3                  for(i = 0; i < verify_len; i++) {
+ 316   4                      if(buffer[i] != verify_buffer[i]) {
+ 317   5                          match = 0;
+ 318   5                          break;
+ 319   5                      }
+ 320   4                  }
+ 321   3                  
+ 322   3                  if(match) {
+ 323   4                      success = 1;
+ 324   4                  } else {
+ 325   4                      retries++;
+ 326   4                      Delay_us(100); // 短暂延时后重试
+ 327   4                  }
+ 328   3              } else {
+ 329   3                  success = 1;
+ 330   3              }
+ 331   2          }
+ 332   1          
+ 333   1          if(!success) {
+ 334   2              return 0;
+ 335   2          }
+ 336   1          
+ 337   1          return 1;
+ 338   1      }
+ 339          
+ 340          // 写入数据（带重试、校验和验证）
+ 341          bool fm31256_write_data_verified(uint32_t address, const uint8_t *buffer, uint32_t length) {
+ 342   1        
+ 343   1          uint8_t retries = 0;
+ 344   1          bool success = 0; 
+ 345   1          uint8_t verify_buffer[16];  // 根据需要调整大小 
+ 346   1          uint32_t verify_len ; 
+ 347   1          bool read_success;  
+ 348   1          if(address + length > FM31256_CAPACITY) {
+ 349   2              return 0;
+ 350   2          }
+ 351   1          
+ 352   1      
+ 353   1          
+ 354   1          while(retries < FM31256_RETRY_COUNT && !success) {
+ 355   2              // 计算原始数据校验
+ 356   2              uint16_t original_crc = calculate_crc16(buffer, length);
+ 357   2              
+ 358   2              uint32_t i;
+ 359   2              for(i = 0; i < length; i++) {
+ 360   3                  fm31256_write_enable();           // 使能写操作
+ 361   3                  
+ 362   3                  FM31256_CS = 0;           // CS拉低
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 7   
+
+ 363   3                  
+ 364   3                  spi_send_byte(FM31256_CMD_WRITE);       // 发送写命令
+ 365   3                  spi_send_byte(((address + i) >> 16) & 0xFF); // 发送地址高位
+ 366   3                  spi_send_byte(((address + i) >> 8) & 0xFF);  // 发送地址中位
+ 367   3                  spi_send_byte((address + i) & 0xFF);    // 发送地址低位
+ 368   3                  spi_send_byte(buffer[i]);               // 写入数据
+ 369   3                  
+ 370   3                  FM31256_CS = 1;           // CS拉高
+ 371   3                  
+ 372   3                  fm31256_wait_write_complete();          // 等待写操作完成
+ 373   3              }
+ 374   2              
+ 375   2              // 使用固定大小的验证缓冲区，避免使用malloc
+ 376   2      
+ 377   2               verify_len = (length < 16) ? length : 16;
+ 378   2              
+ 379   2              read_success = fm31256_read_data_with_retry(address, verify_buffer, verify_len);
+ 380   2              if(read_success) {
+ 381   3                  bool match = true;
+ 382   3                  for(i = 0; i < verify_len; i++) {
+ 383   4                      if(buffer[i] != verify_buffer[i]) {
+ 384   5                          match = false;
+ 385   5                          break;
+ 386   5                      }
+ 387   4                  }
+ 388   3                  
+ 389   3                  if(match) {
+ 390   4                      // 额外的校验：再次读取前几个字节确认
+ 391   4                      uint8_t extra_verify[4];
+ 392   4                      uint32_t extra_len = (length < 4) ? length : 4;
+ 393   4                      bool extra_success = fm31256_read_data_with_retry(address, extra_verify, extra_len);
+ 394   4                      
+ 395   4                      if(extra_success) {
+ 396   5                          bool extra_match = true;
+ 397   5                          for(i = 0; i < extra_len; i++) {
+ 398   6                              if(buffer[i] != extra_verify[i]) {
+ 399   7                                  extra_match = false;
+ 400   7                                  break;
+ 401   7                              }
+ 402   6                          }
+ 403   5                          
+ 404   5                          if(extra_match) {
+ 405   6                              success = true;
+ 406   6                          }
+ 407   5                      }
+ 408   4                  }
+ 409   3              }
+ 410   2              
+ 411   2              retries++;
+ 412   2              
+ 413   2              if(!success) {
+ 414   3                  Delay_us(100); // 短暂延时后重试
+ 415   3              }
+ 416   2          }
+ 417   1          
+ 418   1          if(!success) {
+ 419   2              return false;
+ 420   2          }
+ 421   1          
+ 422   1          return true;
+ 423   1      }
+ 424          
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 8   
+
+ 425          // 存储器健康检查
+ 426          bool fm31256_health_check() {
+ 427   1        
+ 428   1          uint8_t test_data = 0x55;
+ 429   1          uint8_t read_data = 0;
+ 430   1          uint32_t test_addr = 0x00;
+ 431   1          bool write_result=0;
+ 432   1          bool read_result=0XFF;    
+ 433   1          // 读取状态寄存器
+ 434   1          uint8_t status = fm31256_read_status_with_retry();
+ 435   1          
+ 436   1          // 检查WIP位
+ 437   1          if(status & FM31256_STATUS_WIP) {
+ 438   2              // 写操作进行中，等待完成
+ 439   2              fm31256_wait_write_complete();
+ 440   2          }
+ 441   1          
+ 442   1          // 简单读写测试
+ 443   1      
+ 444   1          
+ 445   1          write_result = fm31256_write_data_verified(test_addr, &test_data, 1);
+ 446   1          if(!write_result) {
+ 447   2              return false;
+ 448   2          }
+ 449   1          
+ 450   1          read_result = fm31256_read_data_with_retry(test_addr, &read_data, 1);
+ 451   1          if(!read_result) {
+ 452   2              return false;
+ 453   2          }
+ 454   1          
+ 455   1          if(test_data == read_data) {
+ 456   2              return true; // 健康检查通过
+ 457   2          } else {
+ 458   2              return false; // 健康检查失败
+ 459   2          }
+ 460   1      }
+ 461          
+ 462          // 验证数据块完整性
+ 463          bool verify_data_integrity(const uint8_t *send_data, uint8_t data_size) {
+ 464   1        
+ 465   1         uint16_t calc_checksum;
+ 466   1         uint16_t stored_checksum;
+ 467   1         uint16_t magic;
+ 468   1          if(data_size < 4) return false; // 数据太小无法验证
+ 469   1          
+ 470   1          // 检查魔数头
+ 471   1           magic = ((uint16_t)send_data[1] << 8) | send_data[0];
+ 472   1          if(magic != FM31256_MAGIC_HEADER) {
+ 473   2              return false;
+ 474   2          }
+ 475   1          
+ 476   1          // 计算校验和并验证
+ 477   1           calc_checksum = calculate_crc16(send_data, data_size - 2); // 不包含校验和本身
+ 478   1           stored_checksum = ((uint16_t)send_data[data_size-1] << 8) | send_data[data_size-2];
+ 479   1          
+ 480   1          return calc_checksum == stored_checksum;
+ 481   1      }
+ 482          
+ 483          // 读取系统参数
+ 484          bool read_system_param(system_param_t *param) {
+ 485   1          uint8_t buffer[SYS_PARAM_SIZE]; 
+ 486   1          if(param == NULL) return false;
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 9   
+
+ 487   1          
+ 488   1      
+ 489   1          if(!fm31256_read_data_with_retry(SYS_PARAM_ADDR, buffer, SYS_PARAM_SIZE)) {
+ 490   2              return false;
+ 491   2          }
+ 492   1          
+ 493   1          // 验证数据完整性
+ 494   1          if(!verify_data_integrity(buffer, SYS_PARAM_SIZE)) {
+ 495   2              return false;
+ 496   2          }
+ 497   1          
+ 498   1          // 复制数据到结构体
+ 499   1          memcpy(param, buffer, sizeof(system_param_t));
+ 500   1          return true;
+ 501   1      }
+ 502          
+ 503          // 写入系统参数
+ 504          bool write_system_param(const system_param_t *param) {
+ 505   1          system_param_t temp_param;
+ 506   1          if(param == NULL) return false;
+ 507   1          
+ 508   1          // 计算校验和
+ 509   1           temp_param = *param;
+ 510   1          temp_param.checksum = calculate_crc16((uint8_t*)&temp_param, 
+ 511   1                                               sizeof(system_param_t) - sizeof(uint16_t));
+ 512   1          
+ 513   1          return fm31256_write_data_verified(SYS_PARAM_ADDR, 
+ 514   1                                            (uint8_t*)&temp_param, 
+ 515   1                                            sizeof(system_param_t));
+ 516   1      }
+ 517          
+ 518          // 读取校表参数
+ 519          bool read_calibration_param(calibration_param_t *param) {
+ 520   1          uint8_t buffer[CAL_PARAM_SIZE]; 
+ 521   1          if(param == NULL) return false;
+ 522   1          
+ 523   1      
+ 524   1          if(!fm31256_read_data_with_retry(CAL_PARAM_ADDR, buffer, CAL_PARAM_SIZE)) {
+ 525   2              return false;
+ 526   2          }
+ 527   1          
+ 528   1          // 验证数据完整性
+ 529   1          if(!verify_data_integrity(buffer, CAL_PARAM_SIZE)) {
+ 530   2              return false;
+ 531   2          }
+ 532   1          
+ 533   1          // 复制数据到结构体
+ 534   1          memcpy(param, buffer, sizeof(calibration_param_t));
+ 535   1          return true;
+ 536   1      }
+ 537          
+ 538          // 写入校表参数（仅在出厂时调用）
+ 539          bool write_calibration_param(const calibration_param_t *param) {
+ 540   1        calibration_param_t temp_param ;
+ 541   1          if(param == NULL) return false;
+ 542   1          
+ 543   1          // 计算校验和
+ 544   1           temp_param = *param;
+ 545   1          temp_param.checksum = calculate_crc16((uint8_t*)&temp_param, 
+ 546   1                                               sizeof(calibration_param_t) - sizeof(uint16_t));
+ 547   1          
+ 548   1          return fm31256_write_data_verified(CAL_PARAM_ADDR, 
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 10  
+
+ 549   1                                            (uint8_t*)&temp_param, 
+ 550   1                                            sizeof(calibration_param_t));
+ 551   1      }
+ 552          
+ 553          // 添加事件记录
+ 554          bool add_event_record(const event_record_t *event) {
+ 555   1            uint16_t record_idx = 0;
+ 556   1          bool found_empty = false;
+ 557   1          uint32_t addr;
+ 558   1              event_record_t temp_event;  
+ 559   1        event_record_t write_event;
+ 560   1          if(event == NULL) return false;
+ 561   1          
+ 562   1          // 查找第一个无效的记录位置
+ 563   1      
+ 564   1          
+ 565   1          for(record_idx = 0; record_idx < MAX_EVENT_RECORDS; record_idx++) {
+ 566   2      
+ 567   2              addr = EVENT_RECORD_ADDR + (record_idx * EVENT_RECORD_SIZE);
+ 568   2              
+ 569   2              if(!fm31256_read_data_with_retry(addr, (uint8_t*)&temp_event, EVENT_RECORD_SIZE)) {
+ 570   3                  continue; // 读取失败，继续查找
+ 571   3              }
+ 572   2              
+ 573   2              // 检查记录是否有效
+ 574   2              if(temp_event.valid_flag != 0xFF) {
+ 575   3                  found_empty = true;
+ 576   3                  break;
+ 577   3              }
+ 578   2          }
+ 579   1          
+ 580   1          if(!found_empty) {
+ 581   2              // 如果所有记录都已满，覆盖最旧的记录（循环使用）
+ 582   2              record_idx = 0;
+ 583   2          }
+ 584   1          
+ 585   1          // 准备要写入的事件记录
+ 586   1           write_event = *event;
+ 587   1          write_event.magic = FM31256_MAGIC_HEADER;
+ 588   1          write_event.checksum = calculate_crc16((uint8_t*)&write_event, 
+ 589   1                                               sizeof(event_record_t) - 3); // 不包含校验和和有效标志
+ 590   1          write_event.valid_flag = 0xFF; // 标记为有效
+ 591   1          
+ 592   1          addr = EVENT_RECORD_ADDR + (record_idx * EVENT_RECORD_SIZE);
+ 593   1          return fm31256_write_data_verified(addr, (uint8_t*)&write_event, EVENT_RECORD_SIZE);
+ 594   1      }
+ 595          
+ 596          // 读取事件记录
+ 597          bool read_event_record(uint16_t index, event_record_t *event) {
+ 598   1          uint32_t addr;  
+ 599   1          if(event == NULL || index >= MAX_EVENT_RECORDS) return false;
+ 600   1          
+ 601   1          addr = EVENT_RECORD_ADDR + (index * EVENT_RECORD_SIZE);
+ 602   1          if(!fm31256_read_data_with_retry(addr, (uint8_t*)event, EVENT_RECORD_SIZE)) {
+ 603   2              return false;
+ 604   2          }
+ 605   1          
+ 606   1          // 验证数据完整性
+ 607   1          if(!verify_data_integrity((uint8_t*)event, EVENT_RECORD_SIZE)) {
+ 608   2              return false;
+ 609   2          }
+ 610   1          
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 11  
+
+ 611   1          return true;
+ 612   1      }
+ 613          
+ 614          // 获取有效事件记录数量
+ 615          uint16_t get_event_record_count() {
+ 616   1          uint16_t count = 0;
+ 617   1          uint16_t i;
+ 618   1          
+ 619   1          for(i = 0; i < MAX_EVENT_RECORDS; i++) {
+ 620   2              event_record_t temp_event;
+ 621   2              uint32_t addr = EVENT_RECORD_ADDR + (i * EVENT_RECORD_SIZE);
+ 622   2              
+ 623   2              if(fm31256_read_data_with_retry(addr, (uint8_t*)&temp_event, EVENT_RECORD_SIZE)) {
+ 624   3                  if(temp_event.valid_flag == 0xFF && 
+ 625   3                     verify_data_integrity((uint8_t*)&temp_event, EVENT_RECORD_SIZE)) {
+ 626   4                      count++;
+ 627   4                  }
+ 628   3              }
+ 629   2          }
+ 630   1          
+ 631   1          return count;
+ 632   1      }
+ 633          
+ 634          // 初始化时间（如果时间无效则设置为默认时间）
+ 635          void init_time() {
+ 636   1          time_struct current_time;
+ 637   1          
+ 638   1          // 尝试读取当前时间
+ 639   1          if(get_current_time(&current_time)) {
+ 640   2              // 检查时间是否有效
+ 641   2              if(current_time.year > 50) { // 假设有效年份在2000-2050之间
+ 642   3                  return; // 时间有效，直接返回
+ 643   3              }
+ 644   2          }
+ 645   1          
+ 646   1          // 设置默认时间（2023年1月1日 00:00:00）
+ 647   1          current_time.second = 0;
+ 648   1          current_time.minute = 0;
+ 649   1          current_time.hour = 0;
+ 650   1          current_time.day = 1;
+ 651   1          current_time.month = 1;
+ 652   1          current_time.year = 23; // 2023年
+ 653   1          
+ 654   1          set_current_time(&current_time);
+ 655   1      }
+ 656          
+ 657          // 初始化存储器布局
+ 658          void init_storage_layout() {
+ 659   1          // 初始化系统参数区域（如果需要）
+ 660   1          system_param_t sys_param;
+ 661   1          calibration_param_t cal_param;  
+ 662   1          if(!read_system_param(&sys_param)) {
+ 663   2              // 如果读取失败，初始化默认参数
+ 664   2              memset(&sys_param, 0, sizeof(sys_param));
+ 665   2              sys_param.param_version = 1;
+ 666   2              sys_param.device_id = 0x1234;
+ 667   2              sys_param.calibration_date = 0x230101; // 2023年1月1日
+ 668   2              sys_param.temperature_offset = 0.0f;
+ 669   2              sys_param.voltage_ref = 3.3f;
+ 670   2              sys_param.alarm_threshold = 80;
+ 671   2              write_system_param(&sys_param);
+ 672   2          }
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 12  
+
+ 673   1          
+ 674   1          // 初始化校表参数区域（如果需要）
+ 675   1      
+ 676   1          if(!read_calibration_param(&cal_param)) {
+ 677   2              // 如果读取失败，初始化默认校表参数
+ 678   2              memset(&cal_param, 0, sizeof(cal_param));
+ 679   2              cal_param.cal_version = 1;
+ 680   2              cal_param.gain_factor = 1.0f;
+ 681   2              cal_param.offset_value = 0.0f;
+ 682   2              cal_param.cal_date = 0x230101; // 2023年1月1日
+ 683   2              write_calibration_param(&cal_param);
+ 684   2          }
+ 685   1      }
+ 686          
+ 687          // 系统参数存储测试函数
+ 688          void sys_param_test() {
+ 689   1        
+ 690   1            system_param_t test_param;
+ 691   1            calibration_param_t cal_param;
+ 692   1            event_record_t event;
+ 693   1          // 初始化存储器
+ 694   1          if(!fm31256_init()) {
+ 695   2              return;
+ 696   2          }
+ 697   1          
+ 698   1          // 初始化时间
+ 699   1          init_time();
+ 700   1          
+ 701   1          // 执行健康检查
+ 702   1          if(!fm31256_health_check()) {
+ 703   2              return;
+ 704   2          }
+ 705   1          
+ 706   1          // 测试系统参数读写
+ 707   1      
+ 708   1          test_param.param_version = 1;
+ 709   1          test_param.device_id = 0x55AA;
+ 710   1          test_param.calibration_date = 0x230515; // 2023年5月15日
+ 711   1          test_param.temperature_offset = 2.5f;
+ 712   1          test_param.voltage_ref = 3.3f;
+ 713   1          test_param.alarm_threshold = 85;
+ 714   1          
+ 715   1          if(write_system_param(&test_param)) {
+ 716   2              system_param_t read_param;
+ 717   2              if(read_system_param(&read_param)) {
+ 718   3                  // 参数读写测试成功
+ 719   3              }
+ 720   2          }
+ 721   1          
+ 722   1          // 测试校表参数读写
+ 723   1      
+ 724   1          cal_param.cal_version = 1;
+ 725   1          cal_param.gain_factor = 1.05f;
+ 726   1          cal_param.offset_value = 0.1f;
+ 727   1          cal_param.cal_date = 0x230515;
+ 728   1          
+ 729   1          if(write_calibration_param(&cal_param)) {
+ 730   2              calibration_param_t read_cal;
+ 731   2              if(read_calibration_param(&read_cal)) {
+ 732   3                  // 校表参数读写测试成功
+ 733   3              }
+ 734   2          }
+C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 13  
+
+ 735   1          
+ 736   1          // 测试事件记录
+ 737   1      
+ 738   1          event.event_type = 1; // 故障事件
+ 739   1          event.event_code = 0x01;
+ 740   1          get_current_time(&event.timestamp);
+ 741   1          
+ 742   1          if(add_event_record(&event)) {
+ 743   2              // 事件记录添加成功
+ 744   2          }
+ 745   1      }
+ 746          
+ 747          // 定时器0中断服务程序（用于时间更新）
+ 748          //void timer0_isr() interrupt 1 {
+ 749          //    static uint16_t tick_count = 0;
+ 750          //    
+ 751          //    // 重新加载定时器值（假设12MHz晶振，12T模式，定时50ms）
+ 752          //    TH0 = 0x3C;
+ 753          //    TL0 = 0xB0;
+ 754          //    
+ 755          //    tick_count++;
+ 756          //    
+ 757          //    // 每秒更新一次时间（20个50ms = 1秒）
+ 758          //    if(tick_count >= 20) {
+ 759          //        tick_count = 0;
+ 760          //        update_time();
+ 761          //    }
+ 762          //}
+ 763          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3882    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----     417
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)
