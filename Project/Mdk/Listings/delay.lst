@@ -1,16 +1,16 @@
-C51 COMPILER V9.60.0.0   DELAY                                                             12/11/2025 10:35:24 PAGE 1   
+C51 COMPILER V9.60.0.0   DELAY                                                             01/09/2026 10:30:25 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE DELAY
 OBJECT MODULE PLACED IN .\Objects\delay.obj
-COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\src\delay.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(..\Driver\in
-                    -c;..\Mdk;..\User\inc;..\Modbus;..\Driver\font) DEBUG OBJECTEXTEND PRINT(.\Listings\delay.lst) TABS(2) OBJECT(.\Objects\d
-                    -elay.obj)
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\bsp\src\delay.c LARGE OMF2 OPTIMIZE(5,SIZE) BROWSE NOINTPROMOT
+                    -E INCDIR(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings\dela
+                    -y.lst) TABS(2) OBJECT(.\Objects\delay.obj)
 
 line level    source
 
    1          
-   2          
+   2          #include <intrins.h>
    3          #include "delay.h"
    4          
    5          
@@ -23,37 +23,43 @@ line level    source
   12          
   13          // 微秒延时函数
   14          void Delay_us(unsigned int us) {
-  15   1          unsigned int i;
-  16   1          for (i = 0; i < us; i++)
-  17   1          {
-  18   2              // 22个_NOP_()实现约1μs延时 (994.62ns)
-  19   2              _nop_(); _nop_(); _nop_(); _nop_(); _nop_();
-  20   2              _nop_(); _nop_(); _nop_(); _nop_(); _nop_();
+  15   1          // 核心：volatile强制变量i不被优化，保证循环逻辑完整
+  16   1           unsigned int i;  
+  17   1          // for循环：编译器无法精简volatile变量的循环
+  18   1          for (i = 0; i < us; i++)
+  19   1          {
+  20   2              // 22个_nop_()，每个_nop_()对应1个汇编NOP指令，编译器无法优化
   21   2              _nop_(); _nop_(); _nop_(); _nop_(); _nop_();
   22   2              _nop_(); _nop_(); _nop_(); _nop_(); _nop_();
-  23   2              _nop_(); _nop_();
-  24   2          }
-  25   1      }
-  26          
-  27          // 毫秒延时函数
-  28          void Delay_ms(unsigned int ms) {
-  29   1          unsigned int i;
-  30   1          
-  31   1          for(i = 0; i < ms; i++) {
-  32   2              // 使用精确的微秒延时来实现毫秒延时
-  33   2              Delay_us(1000);
-  34   2          }
-  35   1      }
+  23   2              _nop_(); _nop_(); _nop_(); _nop_(); _nop_();
+  24   2              _nop_(); _nop_(); _nop_(); _nop_(); _nop_();
+  25   2              _nop_(); _nop_();
+  26   2          }
+  27   1      }
+  28          
+  29          // 毫秒延时函数
+  30          void Delay_ms(unsigned int ms) {
+  31   1           unsigned int i;  
+  32   1          
+  33   1          for(i = 0; i < ms; i++) {
+  34   2              // 使用精确的微秒延时来实现毫秒延时
+  35   2              Delay_us(1000);
+  36   2          }
+  37   1      }
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =     67    ----
+   CODE SIZE        =     79    ----
    CONSTANT SIZE    =   ----    ----
-   XDATA SIZE       =   ----    ----
+   XDATA SIZE       =   ----       2
    PDATA SIZE       =   ----    ----
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----
    BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
 END OF MODULE INFORMATION.
 
 

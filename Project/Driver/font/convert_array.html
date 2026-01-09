@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>48字节转144字节数组转换器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .section {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .example {
+            background: #e8f5e8;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>48字节转144字节数组转换器</h1>
+        
+        <div class="section">
+            <h3>输入48字节数组</h3>
+            <textarea id="inputArray" placeholder="请输入48字节数组，格式如：0x20,0x00,0x00,0x17,0xF8,0x00,...">0x20,0x00,0x00,0x17,0xF8,0x00,0x10,0x08,0x00,0x40,0x08,0x00,0x4F,0xC8,0x00,0x48,0x48,0x00,0x48,0x48,0x00,0x4F,0xC8,0x00,0x48,0x48,0x00,0x48,0x48,0x00,0x4F,0xC8,0x00,0x40,0x08,0x00,0x40,0x08,0x00,0x40,0x38,0x00,0x00,0x00,0x00,0x00,0x00,0x00</textarea>
+        </div>
+        
+        <div class="section">
+            <button id="convertBtn">转换</button>
+        </div>
+        
+        <div class="section">
+            <h3>输出144字节数组</h3>
+            <textarea id="outputArray" readonly></textarea>
+        </div>
+        
+        <div class="section">
+            <h3>转换逻辑说明</h3>
+            <ul>
+                <li>每3个字节为一行处理</li>
+                <li>前两个字节每个转换为8个nibble（1→0x0F，0→0x00）</li>
+                <li>第三个字节只取高2位，转换为2个nibble</li>
+                <li>每两个连续nibble组合成一个完整字节</li>
+            </ul>
+            <div class="example">
+                示例：0x01 → 00000001 → 00 00 00 00 00 00 00 0F → 0x00, 0x00, 0x00, 0x0F
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 将字节转换为nibble数组
+        function convertByteToNibbles(byte) {
+            const nibbles = [];
+            for (let i = 7; i >= 0; i--) {
+                const bit = (byte >> i) & 0x01;
+                const nibble = bit === 1 ? 0x0F : 0x00;
+                nibbles.push(nibble);
+            }
+            return nibbles;
+        }
+        
+        // 组合nibble为完整字节
+        function combineNibbles(nibbles) {
+            const result = [];
+            for (let i = 0; i < nibbles.length; i += 2) {
+                if (i + 1 < nibbles.length) {
+                    const combined = (nibbles[i] << 4) | nibbles[i + 1];
+                    result.push(combined);
+                }
+            }
+            return result;
+        }
+        
+        // 处理一行3个字节
+        function processRow(row) {
+            const [b1, b2, b3] = row;
+            
+            const nibbles1 = convertByteToNibbles(b1);
+            const nibbles2 = convertByteToNibbles(b2);
+            
+            // 处理第三个字节的高2位
+            const nibbles3 = [];
+            for (let i = 7; i >= 6; i--) {
+                const bit = (b3 >> i) & 0x01;
+                const nibble = bit === 1 ? 0x0F : 0x00;
+                nibbles3.push(nibble);
+            }
+            
+            const allNibbles = [...nibbles1, ...nibbles2, ...nibbles3];
+            return combineNibbles(allNibbles);
+        }
+        
+        // 主转换函数
+        function convertArray(inputStr) {
+            try {
+                // 解析输入字符串为字节数组
+                const inputBytes = inputStr.split(',').map(item => {
+                    const str = item.trim();
+                    if (str.startsWith('0x')) {
+                        return parseInt(str, 16);
+                    } else {
+                        return parseInt(str, 10);
+                    }
+                }).filter(num => !isNaN(num) && num >= 0 && num <= 255);
+                
+                if (inputBytes.length !== 48) {
+                    throw new Error(`输入字节数错误：${inputBytes.length}，需要48个字节`);
+                }
+                
+                // 转换为16行×3列
+                const rows = [];
+                for (let i = 0; i < inputBytes.length; i += 3) {
+                    rows.push(inputBytes.slice(i, i + 3));
+                }
+                
+                // 处理所有行
+                const result = [];
+                rows.forEach(row => {
+                    const processed = processRow(row);
+                    result.push(...processed);
+                });
+                
+                // 格式化输出，每行16个字节
+                const formatted = result.map(num => `0x${num.toString(16).toUpperCase().padStart(2, '0')}`);
+                let output = '';
+                for (let i = 0; i < formatted.length; i += 16) {
+                    const line = formatted.slice(i, i + 16).join(',');
+                    output += line + '\n';
+                }
+                return output.trim();
+                
+            } catch (error) {
+                return `错误：${error.message}`;
+            }
+        }
+        
+        // 事件监听
+        document.getElementById('convertBtn').addEventListener('click', () => {
+            const input = document.getElementById('inputArray').value;
+            const output = convertArray(input);
+            document.getElementById('outputArray').value = output;
+        });
+        
+        // 页面加载时自动转换示例数据
+        window.addEventListener('load', () => {
+            document.getElementById('convertBtn').click();
+        });
+    </script>
+</body>
+</html>

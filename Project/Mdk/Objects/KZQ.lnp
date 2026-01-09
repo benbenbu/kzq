@@ -1,14 +1,24 @@
-".\Objects\system.obj",
-".\Objects\main.obj",
-".\Objects\lcd_test.obj",
-".\Objects\lcd.obj",
-".\Objects\bsp.obj",
-".\Objects\delay.obj",
-".\Objects\fm31256.obj",
-".\Objects\time.obj",
-".\Objects\uart.obj",
-".\Objects\modbus.obj",
-".\Objects\font_date.obj" 
+COMMON {".\Objects\main.obj"},
+COMMON {".\Objects\system.obj"},
+BANK1 {".\Objects\menu.obj"},
+BANK2 {".\Objects\menu1.obj"},
+COMMON {".\Objects\data_save.obj"},
+COMMON {".\Objects\L51_BANK.obj"},
+COMMON {".\Objects\STARTUP.obj"},
+BANK2 {".\Objects\data_deal.obj"},
+COMMON {".\Objects\bsp.obj"},
+COMMON {".\Objects\time.obj"},
+COMMON {".\Objects\uart.obj"},
+COMMON {".\Objects\delay.obj"},
+COMMON {".\Objects\i2c.obj"},
+COMMON {".\Objects\spi.obj"},
+COMMON {".\Objects\adc_key.obj"},
+COMMON {".\Objects\fm31256.obj"},
+BANK3 {".\Objects\lcd.obj"},
+COMMON {".\Objects\ht7036.obj"},
+BANK2 {".\Objects\modbus.obj"} 
 TO ".\Objects\KZQ" 
-PRINT(".\Listings\KZQ.m51") RAMSIZE(256) 
-DISABLEWARNING (16) 
+BankArea (0x008000, 0x00FFFF) 
+PRINT(".\Listings\KZQ.map") DISABLEWARNING (57,16) 
+SEGMENTS ( 
+?CO?LCD(B3:0x8000) ) 

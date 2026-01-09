@@ -1,813 +1,653 @@
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 1   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE FM31256
 OBJECT MODULE PLACED IN .\Objects\fm31256.obj
-COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\src\fm31256.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(..\Driver\
-                    -inc;..\Mdk;..\User\inc;..\Modbus;..\Driver\font) DEBUG OBJECTEXTEND PRINT(.\Listings\fm31256.lst) TABS(2) OBJECT(.\Objec
-                    -ts\fm31256.obj)
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\device\src\fm31256.c LARGE OMF2 OPTIMIZE(5,SIZE) BROWSE NOINTP
+                    -ROMOTE INCDIR(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings
+                    -\fm31256.lst) TABS(2) OBJECT(.\Objects\fm31256.obj)
 
 line level    source
 
-   1          
+   1          #include "config.h"
    2          #include "fm31256.h"
    3          
-   4          
+   4          #include "i2c.h"
    5          
    6          
-   7          
-   8          
-   9          // Èí¼þSPIÊ±ÖÓÑÓÊ±
-  10          void spi_delay() {
-  11   1          _nop_(); _nop_(); _nop_(); _nop_(); // ÑÓÊ±¼¸¸ö»úÆ÷ÖÜÆÚ
-  12   1      }
-  13          
-  14          // Èí¼þSPI·¢ËÍÒ»¸ö×Ö½Ú
-  15          void spi_send_byte(uint8_t send_data) {
-  16   1          uint8_t i;
-  17   1          for(i = 0; i < 8; i++) {
-  18   2              SPI_SCK = 0;
-  19   2              if(send_data & 0x80) {
-  20   3                  SPI_MOSI = 1;
-  21   3              } else {
-  22   3                  SPI_MOSI = 0;
-  23   3              }
-  24   2              send_data <<= 1;
-  25   2              spi_delay();
-  26   2              SPI_SCK = 1;
-  27   2              spi_delay();
-  28   2          }
-  29   1          SPI_SCK = 0; // ±£³ÖÊ±ÖÓµÍµçÆ½
-  30   1      }
-  31          
-  32          // Èí¼þSPI½ÓÊÕÒ»¸ö×Ö½Ú
-  33          uint8_t spi_receive_byte() {
-  34   1          uint8_t i;
-  35   1          uint8_t send_data = 0;
-  36   1          
-  37   1          for(i = 0; i < 8; i++) {
-  38   2              SPI_SCK = 0;
-  39   2              spi_delay();
-  40   2              SPI_SCK = 1;
-  41   2              send_data <<= 1;
-  42   2              if(SPI_MISO) {
-  43   3                  send_data |= 0x01;
-  44   3              }
-  45   2              spi_delay();
-  46   2          }
-  47   1          SPI_SCK = 0; // ±£³ÖÊ±ÖÓµÍµçÆ½
-  48   1          return send_data;
-  49   1      }
-  50          
-  51          // Èí¼þSPI·¢ËÍ½ÓÊÕ×Ö½Ú£¨È«Ë«¹¤£©
-  52          uint8_t spi_transfer_byte(uint8_t send_data) {
-  53   1          uint8_t i;
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 2   
+   7          /**
+   8           * @brief  ´Ó18h~11h¼Ä´æÆ÷¶ÁÈ¡°æ±¾ºÅ
+   9           * @param  ver£ºÊä³ö£¬°æ±¾ºÅ½á¹¹Ìå
+  10           * @return 0=³É¹¦£¬1=Ê§°Ü
+  11           */
+  12          uint8_t FM31256_Read_Version(Version_Struct *ver) {
+  13   1          uint8_t ret = 0;  
+  14   1          if (ver == NULL) return 1;
+  15   1      
+  16   1          // ÐòÁÐºÅ¼Ä´æÆ÷ÒÑËø¶¨ÎªÖ»¶Á£¨SNL=1£©£¬Ö±½Ó¶ÁÈ¡
+  17   1          ret = FM31256_Reg_Read(SN_VER_MAIN_ADDR, &ver->main_ver);
+  18   1          ret |= FM31256_Reg_Read(SN_VER_SUB_ADDR, &ver->sub_ver);
+  19   1          ret |= FM31256_Reg_Read(SN_HW_VER_ADDR, &ver->hw_ver);
+  20   1          return ret;
+  21   1      }
+  22          
+  23          /**
+  24           * @brief  ´Ó18h~11h¼Ä´æÆ÷Ð´°æ±¾ºÅ
+  25           * @param  ver£ºÊä³ö£¬°æ±¾ºÅ½á¹¹Ìå
+  26           * @return 0=³É¹¦£¬1=Ê§°Ü
+  27           */
+  28          uint8_t FM31256_Write_Version(Version_Struct *ver) {
+  29   1          uint8_t ret = 0;  
+  30   1          if (ver == NULL) return 1;
+  31   1      
+  32   1          // ÐòÁÐºÅ¼Ä´æÆ÷ÒÑËø¶¨ÎªÖ»¶Á£¨SNL=1£©£¬Ö±½Ó¶ÁÈ¡
+  33   1          ret =  FM31256_Reg_Write(SN_VER_MAIN_ADDR, VER_MAIN);
+  34   1          ret |= FM31256_Reg_Write(SN_VER_SUB_ADDR, VER_SUB);
+  35   1          ret |= FM31256_Reg_Write(SN_HW_VER_ADDR, HW_VERSION);
+  36   1          return ret;
+  37   1      }
+  38          
+  39          
+  40          // --------------- FRAM´æ´¢º¯ÊýÊµÏÖ ---------------
+  41          /**
+  42           * @brief  ¶ÁÈ¡FRAMÊý¾Ý£¨Ö§³ÖÁ¬Ðø¶Á£©
+  43           * @param  addr: ´æ´¢µØÖ·£¨0x0000~0x7FFF£©
+  44           * @param  buf: ½ÓÊÕ»º³åÇø£¨ÐèÌáÇ°·ÖÅäÄÚ´æ£©
+  45           * @param  len: ¶ÁÈ¡³¤¶È£¨1~64×Ö½Ú£¬²»¿çÒ³£©
+  46           * @retval ´íÎóÂë£¨FM31256_OK/ERR_PARAM/ERR_I2C£©
+  47           */
+  48          uint8_t FM31256_FRAM_Read(uint16_t addr, uint8_t *buf, uint16_t len) {
+  49   1          uint8_t err;
+  50   1          uint16_t i;
+  51   1          char SFRPAGE_SAVE = SFRPAGE;
+  52   1          SFRPAGE = SMB0_PAGE;  
+  53   1          // Ð£Ñé²ÎÊýºÏ·¨ÐÔ
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 2   
 
-  54   1          uint8_t receive = 0;
-  55   1          
-  56   1          for(i = 0; i < 8; i++) {
-  57   2              SPI_SCK = 0;
-  58   2              if(send_data & 0x80) {
-  59   3                  SPI_MOSI = 1;
-  60   3              } else {
-  61   3                  SPI_MOSI = 0;
-  62   3              }
-  63   2              send_data <<= 1;
-  64   2              spi_delay();
-  65   2              SPI_SCK = 1;
-  66   2              receive <<= 1;
-  67   2              if(SPI_MISO) {
-  68   3                  receive |= 0x01;
-  69   3              }
-  70   2              spi_delay();
+  54   1          if (buf == NULL || len == 0 || addr > 0x7FFF) 
+  55   1          {
+  56   2                  SFRPAGE = SFRPAGE_SAVE;
+  57   2            return FM31256_ERR_PARAM;
+  58   2          }
+  59   1          // µÚÒ»²½£º·¢ËÍFRAM´æ´¢µØÖ·£¨Ð´Ä£Ê½£©
+  60   1          err = I2C_Start();
+  61   1          if (err != I2C_SUCCESS){
+  62   2            SFRPAGE = SFRPAGE_SAVE;
+  63   2            return FM31256_ERR_I2C;
+  64   2          }
+  65   1          // ·¢ËÍFM31256Ð´µØÖ·
+  66   1          err = I2C_SendAddr(FM31256_SLAVE_W);
+  67   1          if (err != I2C_SUCCESS) {
+  68   2              I2C_Stop();
+  69   2                  SFRPAGE = SFRPAGE_SAVE;
+  70   2              return FM31256_ERR_I2C;
   71   2          }
-  72   1          SPI_SCK = 0; // ±£³ÖÊ±ÖÓµÍµçÆ½
-  73   1          return receive;
-  74   1      }
-  75          
-  76          
-  77          // CRC16Ð£Ñé¼ÆËã
-  78          uint16_t calculate_crc16(const uint8_t *send_data, uint32_t length) {
-  79   1          uint16_t crc = 0xFFFF;
-  80   1          uint32_t i;
-  81   1          uint8_t j;   
-  82   1          for(i = 0; i < length; i++) {
-  83   2              crc ^= send_data[i];
-  84   2      
-  85   2              for(j = 0; j < 8; j++) {
-  86   3                  if(crc & 0x0001) {
-  87   4                      crc = (crc >> 1) ^ 0xA001; // CRC16-IBM¶àÏîÊ½
-  88   4                  } else {
-  89   4                      crc >>= 1;
-  90   4                  }
-  91   3              }
-  92   2          }
-  93   1          return crc;
-  94   1      }
-  95          
-  96          // BCDÂë×ª»»Îª¶þ½øÖÆ
-  97          uint8_t bcd_to_bin(uint8_t bcd) {
-  98   1          return ((bcd >> 4) * 10) + (bcd & 0x0F);
-  99   1      }
- 100          
- 101          // ¶þ½øÖÆ×ª»»ÎªBCDÂë
- 102          uint8_t bin_to_bcd(uint8_t bin) {
- 103   1          return ((bin / 10) << 4) + (bin % 10);
- 104   1      }
- 105          
- 106          // »ñÈ¡µ±Ç°Ê±¼ä£¨´Ó´æ´¢Æ÷¶ÁÈ¡£©
- 107          bool get_current_time(time_struct *time) {
- 108   1          // ÕâÀï¼ÙÉèÊ±¼ä´æ´¢ÔÚFRAMµÄ×îºó¼¸¸ö×Ö½Ú£¬»òÍ¨¹ýRTCÐ¾Æ¬»ñÈ¡
- 109   1          // ÎªÁË¼ò»¯£¬ÕâÀïÖ±½Ó·µ»Øµ±Ç°Ê±¼ä£¨Êµ¼ÊÓ¦ÓÃÖÐÓ¦´ÓRTC»ñÈ¡£©
- 110   1          time->second = 0;
- 111   1          time->minute = 0;
- 112   1          time->hour = 0;
- 113   1          time->day = 1;
- 114   1          time->month = 1;
- 115   1          time->year = 23; // 2023Äê
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 3   
+  72   1      
+  73   1          // ·¢ËÍ´æ´¢µØÖ·¸ß×Ö½Ú
+  74   1          err = I2C_SendData((addr >> 8) & 0xFF);
+  75   1          if (err != I2C_SUCCESS) {
+  76   2              I2C_Stop();
+  77   2                  SFRPAGE = SFRPAGE_SAVE;
+  78   2              return FM31256_ERR_I2C;
+  79   2          }
+  80   1      
+  81   1          // ·¢ËÍ´æ´¢µØÖ·µÍ×Ö½Ú
+  82   1          err = I2C_SendData(addr & 0xFF);
+  83   1          if (err != I2C_SUCCESS) {
+  84   2              I2C_Stop();
+  85   2                  SFRPAGE = SFRPAGE_SAVE;
+  86   2              return FM31256_ERR_I2C;
+  87   2          }
+  88   1      
+  89   1          // µÚ¶þ²½£ºÖØ¸´ÆðÊ¼£¬ÇÐ»»µ½¶ÁÄ£Ê½
+  90   1          err = I2C_RepeatStart();
+  91   1          if (err != I2C_SUCCESS) {
+  92   2              I2C_Stop();
+  93   2                  SFRPAGE = SFRPAGE_SAVE;
+  94   2              return FM31256_ERR_I2C;
+  95   2          }
+  96   1      
+  97   1          // ·¢ËÍFM31256¶ÁµØÖ·
+  98   1          err = I2C_SendAddr(FM31256_SLAVE_R);
+  99   1          if (err != I2C_SUCCESS) {
+ 100   2              I2C_Stop();
+ 101   2              SFRPAGE = SFRPAGE_SAVE;
+ 102   2              return FM31256_ERR_I2C;
+ 103   2          }
+ 104   1      
+ 105   1          // µÚÈý²½£ºÁ¬Ðø¶ÁÈ¡Êý¾Ý£¨×îºó1×Ö½Ú·¢NACK£¬ÆäÓà·¢ACK£©
+ 106   1          for ( i = 0; i < len; i++) {
+ 107   2              uint8_t ack = (i == len - 1) ? 0 : 1;  // ×îºó1×Ö½ÚNACK£¬ÆäËûACK
+ 108   2              err = I2C_RecvData(ack, &buf[i]);      // ÊÊÅäË«²ÎÊýI2C_RecvData
+ 109   2              if (err != I2C_SUCCESS) {
+ 110   3                  I2C_Stop();
+ 111   3                  SFRPAGE = SFRPAGE_SAVE;
+ 112   3                  return FM31256_ERR_I2C;
+ 113   3              }
+ 114   2          }
+ 115   1      
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 3   
 
- 116   1          return 1;
- 117   1      }
- 118          
- 119          // ÉèÖÃµ±Ç°Ê±¼ä£¨±£´æµ½´æ´¢Æ÷£©
- 120          void set_current_time(const time_struct *time) {
- 121   1          // Êµ¼ÊÓ¦ÓÃÖÐÓ¦±£´æµ½RTC»òÌØ¶¨´æ´¢Î»ÖÃ
- 122   1      }
-*** WARNING C280 IN LINE 120 OF ..\Driver\src\fm31256.c: 'time': unreferenced local variable
- 123          
- 124          // ¸üÐÂÊ±¼ä£¨µÝÔöÒ»Ãë£©
- 125          void update_time() {
- 126   1          // Êµ¼ÊÓ¦ÓÃÖÐÓÉ¶¨Ê±Æ÷ÖÐ¶Ï´¦Àí
- 127   1      }
- 128          
- 129          // FM31256³õÊ¼»¯
- 130          bool fm31256_init() {
- 131   1           uint8_t status=0;
- 132   1          // ÉèÖÃ¿ØÖÆÒý½Å³õÊ¼×´Ì¬
- 133   1          FM31256_CS = 1;   // CSÀ­¸ß
- 134   1          FM31256_HOLD = 1; // HOLDÀ­¸ß
- 135   1          FM31256_WP = 0;   // WPÀ­µÍ£¨ÔÊÐíÐ´Èë£©
- 136   1          
- 137   1          // ³õÊ¼»¯SPI½Ó¿Ú
- 138   1          SPI_MOSI = 0;
- 139   1          SPI_SCK = 0;
- 140   1          
- 141   1          // ¶ÌÔÝÑÓÊ±ÈÃÉè±¸ÎÈ¶¨
- 142   1          Delay_ms(10);
- 143   1          
- 144   1          // ¼ì²éÉè±¸ÊÇ·ñÏìÓ¦
- 145   1          status = fm31256_read_status();
- 146   1          if(status != 0xFF) {
- 147   2              return 1;
- 148   2          } else {
- 149   2              return 0;
- 150   2          }
- 151   1      }
- 152          
- 153          // ¶ÁÈ¡×´Ì¬¼Ä´æÆ÷£¨´øÖØÊÔ»úÖÆ£©
- 154          uint8_t fm31256_read_status_with_retry() {
- 155   1          uint8_t status = 0;
- 156   1          uint8_t retries = 0;
- 157   1          
- 158   1          while(retries < FM31256_RETRY_COUNT) {
- 159   2              FM31256_CS = 0;           // CSÀ­µÍ
- 160   2              spi_send_byte(FM31256_CMD_RDSR); // ·¢ËÍ¶Á×´Ì¬¼Ä´æÆ÷ÃüÁî
- 161   2              status = spi_receive_byte();     // ¶ÁÈ¡×´Ì¬Öµ
- 162   2              FM31256_CS = 1;           // CSÀ­¸ß
- 163   2              
- 164   2              // ¼òµ¥ÑéÖ¤£ºÈç¹û¶ÁÈ¡µ½µÄ×´Ì¬ÖµÔÚºÏÀí·¶Î§ÄÚ£¬ÈÏÎª¶ÁÈ¡³É¹¦
- 165   2              if(status <= 0x03) { // WIPºÍWELÎ»×éºÏ²»»á³¬¹ý0x03
- 166   3                  break;
- 167   3              }
- 168   2              
- 169   2              retries++;
- 170   2              Delay_us(10); // ¶ÌÔÝÑÓÊ±ºóÖØÊÔ
- 171   2          }
- 172   1          
- 173   1          return status;
- 174   1      }
- 175          
- 176          // ¶ÁÈ¡×´Ì¬¼Ä´æÆ÷
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 4   
+ 116   1          // µÚËÄ²½£º·¢ËÍÍ£Ö¹Ìõ¼þ
+ 117   1          I2C_Stop();
+ 118   1          SFRPAGE = SFRPAGE_SAVE;
+ 119   1          return FM31256_OK;
+ 120   1      }
+ 121          
+ 122          /**
+ 123           * @brief  Ð´ÈëFRAMÊý¾Ý£¨Ö§³ÖÁ¬ÐøÐ´£¬×î´ó64×Ö½Ú/Ò³£©
+ 124           * @param  addr: ´æ´¢µØÖ·£¨0x0000~0x7FFF£©
+ 125           * @param  buf: ´ýÐ´Êý¾Ý»º³åÇø
+ 126           * @param  len: Ð´Èë³¤¶È£¨1~64×Ö½Ú£¬±ÜÃâ¿çÒ³£©
+ 127           * @retval ´íÎóÂë£¨FM31256_OK/ERR_PARAM/ERR_I2C£©
+ 128           */
+ 129          uint8_t FM31256_FRAM_Write(uint16_t addr, const uint8_t *buf, uint16_t len) {
+ 130   1          uint8_t err;
+ 131   1          uint16_t i;
+ 132   1          char SFRPAGE_SAVE = SFRPAGE;
+ 133   1          SFRPAGE = SMB0_PAGE;  
+ 134   1          // Ð£Ñé²ÎÊýºÏ·¨ÐÔ
+ 135   1          if (buf == NULL || len == 0 || addr > 0x7FFF || len > 64) 
+ 136   1          {
+ 137   2            SFRPAGE = SFRPAGE_SAVE;
+ 138   2            return FM31256_ERR_PARAM;
+ 139   2          }
+ 140   1      
+ 141   1          // 1. ÆðÊ¼Ìõ¼þ
+ 142   1          err = I2C_Start();
+ 143   1          if (err != I2C_SUCCESS){
+ 144   2              SFRPAGE = SFRPAGE_SAVE;
+ 145   2            return FM31256_ERR_I2C;
+ 146   2          }
+ 147   1      
+ 148   1          // 2. ·¢ËÍFM31256Ð´µØÖ·
+ 149   1          err = I2C_SendAddr(FM31256_SLAVE_W);
+ 150   1          if (err != I2C_SUCCESS) {
+ 151   2              I2C_Stop();
+ 152   2              SFRPAGE = SFRPAGE_SAVE;
+ 153   2              return FM31256_ERR_I2C;
+ 154   2          }
+ 155   1      
+ 156   1          // 3. ·¢ËÍ´æ´¢µØÖ·¸ß×Ö½Ú
+ 157   1          err = I2C_SendData((addr >> 8) & 0xFF);
+ 158   1          if (err != I2C_SUCCESS) {
+ 159   2              I2C_Stop();
+ 160   2              SFRPAGE = SFRPAGE_SAVE;
+ 161   2              return FM31256_ERR_I2C;
+ 162   2          }
+ 163   1      
+ 164   1          // 4. ·¢ËÍ´æ´¢µØÖ·µÍ×Ö½Ú
+ 165   1          err = I2C_SendData(addr & 0xFF);
+ 166   1          if (err != I2C_SUCCESS) {
+ 167   2              I2C_Stop();
+ 168   2              SFRPAGE = SFRPAGE_SAVE;
+ 169   2              return FM31256_ERR_I2C;
+ 170   2          }
+ 171   1      
+ 172   1          // 5. Á¬Ðø·¢ËÍÊý¾Ý£¨×î¶à64×Ö½Ú£©
+ 173   1          for ( i = 0; i < len; i++) {
+ 174   2              err = I2C_SendData(buf[i]);
+ 175   2              if (err != I2C_SUCCESS) {
+ 176   3                  I2C_Stop();
+ 177   3                  SFRPAGE = SFRPAGE_SAVE;
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 4   
 
- 177          uint8_t fm31256_read_status() {
- 178   1          return fm31256_read_status_with_retry();
- 179   1      }
- 180          
- 181          // Ð´Èë×´Ì¬¼Ä´æÆ÷£¨´øÑéÖ¤£©
- 182          void fm31256_write_status_verified(uint8_t status) {
- 183   1          uint8_t retries = 0;
- 184   1          bool success = 0;
- 185   1          uint8_t readback=0;   
- 186   1          while(retries < FM31256_RETRY_COUNT && !success) {
- 187   2              fm31256_write_enable();           // Ê¹ÄÜÐ´²Ù×÷
- 188   2              
- 189   2              FM31256_CS = 0;           // CSÀ­µÍ
- 190   2              spi_send_byte(FM31256_CMD_WRSR); // ·¢ËÍÐ´×´Ì¬¼Ä´æÆ÷ÃüÁî
- 191   2              spi_send_byte(status);           // Ð´Èë×´Ì¬Öµ
- 192   2              FM31256_CS = 1;           // CSÀ­¸ß
- 193   2              
- 194   2              fm31256_wait_write_complete();    // µÈ´ýÐ´²Ù×÷Íê³É
- 195   2              
- 196   2              // ÑéÖ¤Ð´ÈëÊÇ·ñ³É¹¦
- 197   2              readback = fm31256_read_status();
- 198   2              if(readback == status) {
- 199   3                  success = 1;
- 200   3              } else {
- 201   3                  retries++;
- 202   3                  Delay_us(100); // µÈ´ýºóÖØÊÔ
- 203   3              }
- 204   2          }
- 205   1      }
+ 178   3                  return FM31256_ERR_I2C;
+ 179   3              }
+ 180   2          }
+ 181   1      
+ 182   1          // 6. Í£Ö¹Ìõ¼þ
+ 183   1          I2C_Stop();
+ 184   1          SFRPAGE = SFRPAGE_SAVE;
+ 185   1          return FM31256_OK;
+ 186   1      }
+ 187          
+ 188          
+ 189          
+ 190          
+ 191          
+ 192          
+ 193          
+ 194          
+ 195          
+ 196          
+ 197          
+ 198          
+ 199          
+ 200          
+ 201          
+ 202          
+ 203          
+ 204          
+ 205          
  206          
- 207          // Ê¹ÄÜÐ´²Ù×÷£¨´øÑéÖ¤£©
- 208          void fm31256_write_enable_verified() {
- 209   1          uint8_t retries = 0;
- 210   1          bool success = 0;
- 211   1          uint8_t status=0;    
- 212   1          while(retries < FM31256_RETRY_COUNT && !success) {
- 213   2              FM31256_CS = 0;           // CSÀ­µÍ
- 214   2              spi_send_byte(FM31256_CMD_WREN); // ·¢ËÍÐ´Ê¹ÄÜÃüÁî
- 215   2              FM31256_CS = 1;           // CSÀ­¸ß
- 216   2              
- 217   2              // ÑéÖ¤WELÎ»ÊÇ·ñ±»ÉèÖÃ
- 218   2              status = fm31256_read_status();
- 219   2              if(status & FM31256_STATUS_WEL) {
- 220   3                  success = 1;
- 221   3              } else {
- 222   3                  retries++;
- 223   3                  Delay_us(100); // µÈ´ýºóÖØÊÔ
- 224   3              }
- 225   2          }
- 226   1      }
- 227          
- 228          // Ê¹ÄÜÐ´²Ù×÷
- 229          void fm31256_write_enable() {
- 230   1          fm31256_write_enable_verified();
- 231   1      }
- 232          
- 233          // ½ûÖ¹Ð´²Ù×÷£¨´øÑéÖ¤£©
- 234          void fm31256_write_disable_verified() {
- 235   1          uint8_t retries = 0;
- 236   1          bool success = false;
- 237   1          uint8_t status=0;   
- 238   1          while(retries < FM31256_RETRY_COUNT && !success) {
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 5   
+ 207          
+ 208          
+ 209          
+ 210          
+ 211          
+ 212          /**
+ 213           * @brief  ¶ÁÈ¡¼Ä´æÆ÷Êý¾Ý
+ 214           * @param  addr: µØÖ·£¨0x00~0x18£©
+ 215           * @param  byte: Êý¾Ý
+ 216           * @retval ´íÎóÂë£¨FM31256_OK/ERR_PARAM/ERR_I2C£©
+ 217           */
+ 218          uint8_t FM31256_Reg_Read(uint8_t addr, uint8_t *byte) {
+ 219   1          uint8_t err;
+ 220   1          char SFRPAGE_SAVE = SFRPAGE;
+ 221   1          SFRPAGE = SMB0_PAGE;  
+ 222   1          // µÚÒ»²½£º·¢ËÍFRAM´æ´¢µØÖ·£¨Ð´Ä£Ê½£©
+ 223   1          err = I2C_Start();
+ 224   1          if (err != I2C_SUCCESS){
+ 225   2            SFRPAGE = SFRPAGE_SAVE;
+ 226   2            return FM31256_ERR_I2C;
+ 227   2          }
+ 228   1          // ·¢ËÍFM31256Ð´µØÖ·
+ 229   1          err = I2C_SendAddr(FM31256_COM_SLAVE_W);
+ 230   1          if (err != I2C_SUCCESS) {
+ 231   2              I2C_Stop();
+ 232   2          SFRPAGE = SFRPAGE_SAVE;
+ 233   2              return FM31256_ERR_I2C;
+ 234   2          }
+ 235   1      
+ 236   1          // ·¢ËÍ´æ´¢µØÖ·¸ß×Ö½Ú
+ 237   1          err = I2C_SendData(addr );
+ 238   1          if (err != I2C_SUCCESS) {
+ 239   2              I2C_Stop();
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 5   
 
- 239   2              FM31256_CS = 0;           // CSÀ­µÍ
- 240   2              spi_send_byte(FM31256_CMD_WRDI); // ·¢ËÍÐ´½ûÖ¹ÃüÁî
- 241   2              FM31256_CS = 1;           // CSÀ­¸ß
- 242   2              
- 243   2              // ÑéÖ¤WELÎ»ÊÇ·ñ±»Çå³ý
- 244   2              status = fm31256_read_status();
- 245   2              if(!(status & FM31256_STATUS_WEL)) {
- 246   3                  success = 1;
- 247   3              } else {
- 248   3                  retries++;
- 249   3                  Delay_us(100); // µÈ´ýºóÖØÊÔ
- 250   3              }
- 251   2          }
- 252   1      }
- 253          
- 254          // ½ûÖ¹Ð´²Ù×÷
- 255          void fm31256_write_disable() {
- 256   1          fm31256_write_disable_verified();
- 257   1      }
- 258          
- 259          // µÈ´ýÐ´²Ù×÷Íê³É£¨´ø³¬Ê±£©
- 260          void fm31256_wait_write_complete() {
- 261   1          uint16_t timeout = 10000; // 10ms³¬Ê±
- 262   1          while((fm31256_read_status() & FM31256_STATUS_WIP) && timeout > 0) {
- 263   2              Delay_us(1);
- 264   2              timeout--;
- 265   2          }
- 266   1      }
- 267          
- 268          // ¶ÁÈ¡Êý¾Ý£¨´øÖØÊÔºÍÐ£Ñé£©
- 269          bool fm31256_read_data_with_retry(uint32_t address, uint8_t *buffer, uint32_t length) {
- 270   1        
- 271   1          uint8_t retries = 0;
- 272   1          bool success = 0; 
- 273   1          uint32_t i;
- 274   1          bool match = 1; 
- 275   1          if(address + length > FM31256_CAPACITY) {
- 276   2              return 0;
- 277   2          }
- 278   1          
- 279   1      
- 280   1          
- 281   1          while(retries < FM31256_RETRY_COUNT && !success) {
- 282   2              FM31256_CS = 0;           // CSÀ­µÍ
- 283   2              
- 284   2              spi_send_byte(FM31256_CMD_READ);        // ·¢ËÍ¶ÁÃüÁî
- 285   2              spi_send_byte((address >> 16) & 0xFF);  // ·¢ËÍµØÖ·¸ßÎ»
- 286   2              spi_send_byte((address >> 8) & 0xFF);   // ·¢ËÍµØÖ·ÖÐÎ»
- 287   2              spi_send_byte(address & 0xFF);          // ·¢ËÍµØÖ·µÍÎ»
- 288   2              
- 289   2      
- 290   2              for(i = 0; i < length; i++) {
- 291   3                  buffer[i] = spi_receive_byte();     // ¶ÁÈ¡Êý¾Ý
- 292   3              }
- 293   2              
- 294   2              FM31256_CS = 1;           // CSÀ­¸ß
- 295   2              
- 296   2              // ½øÐÐ¶þ´Î¶ÁÈ¡ÑéÖ¤£¨¶ÁÈ¡Ç°¼¸¸ö×Ö½Ú£©
- 297   2              if(length > 0) {
- 298   3                  uint8_t verify_buffer[4];
- 299   3                  uint32_t verify_len = (length < 4) ? length : 4;
- 300   3                  
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 6   
+ 240   2          SFRPAGE = SFRPAGE_SAVE;
+ 241   2              return FM31256_ERR_I2C;
+ 242   2          }
+ 243   1          // µÚ¶þ²½£ºÖØ¸´ÆðÊ¼£¬ÇÐ»»µ½¶ÁÄ£Ê½
+ 244   1          err = I2C_RepeatStart();
+ 245   1          if (err != I2C_SUCCESS) {
+ 246   2              I2C_Stop();
+ 247   2                  SFRPAGE = SFRPAGE_SAVE;
+ 248   2              return FM31256_ERR_I2C;
+ 249   2          }
+ 250   1      
+ 251   1          // ·¢ËÍFM31256¶ÁµØÖ·
+ 252   1          err = I2C_SendAddr(FM31256_COM_SLAVE_R);
+ 253   1          if (err != I2C_SUCCESS) {
+ 254   2              I2C_Stop();
+ 255   2          SFRPAGE = SFRPAGE_SAVE;
+ 256   2              return FM31256_ERR_I2C;
+ 257   2          }
+ 258   1      
+ 259   1          // µÚÈý²½£ºÁ¬Ðø¶ÁÈ¡Êý¾Ý£¨×îºó1×Ö½Ú·¢NACK£¬ÆäÓà·¢ACK£©
+ 260   1      
+ 261   1              err = I2C_RecvData(0, byte);      // ÊÊÅäË«²ÎÊýI2C_RecvData
+ 262   1              if (err != I2C_SUCCESS) {
+ 263   2                  I2C_Stop();
+ 264   2                  SFRPAGE = SFRPAGE_SAVE;
+ 265   2                  return FM31256_ERR_I2C;
+ 266   2              }
+ 267   1          // µÚËÄ²½£º·¢ËÍÍ£Ö¹Ìõ¼þ
+ 268   1          I2C_Stop();
+ 269   1        SFRPAGE = SFRPAGE_SAVE;
+ 270   1          return FM31256_OK;
+ 271   1      }
+ 272          
+ 273          
+ 274          /**
+ 275           * @brief  Ð´Èë¼Ä´æÆ÷Êý¾Ý
+ 276           * @param  addr: ´æ´¢µØÖ·£¨0x0000~0x7FFF£©
+ 277           * @param  byte: ´ýÐ´Êý¾Ý×Ö½Ú
+ 278           * @retval ´íÎóÂë£¨FM31256_OK/ERR_PARAM/ERR_I2C£©
+ 279           */
+ 280          uint8_t FM31256_Reg_Write(uint8_t addr,  uint8_t byte) {
+ 281   1          uint8_t err;
+ 282   1          char SFRPAGE_SAVE = SFRPAGE;
+ 283   1          SFRPAGE = SMB0_PAGE;  
+ 284   1          // 1. ÆðÊ¼Ìõ¼þ
+ 285   1          err = I2C_Start();
+ 286   1          if (err != I2C_SUCCESS){
+ 287   2              SFRPAGE = SFRPAGE_SAVE;
+ 288   2            return FM31256_ERR_I2C;
+ 289   2          }
+ 290   1      
+ 291   1          // 2. ·¢ËÍFM31256Ð´µØÖ·
+ 292   1          err = I2C_SendAddr(FM31256_COM_SLAVE_W);
+ 293   1          if (err != I2C_SUCCESS) {
+ 294   2              I2C_Stop();
+ 295   2              SFRPAGE = SFRPAGE_SAVE;
+ 296   2              return FM31256_ERR_I2C;
+ 297   2          }
+ 298   1      
+ 299   1          // 3. ·¢ËÍ´æ´¢µØÖ·¸ß×Ö½Ú
+ 300   1          err = I2C_SendData(addr );
+ 301   1          if (err != I2C_SUCCESS) {
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 6   
 
- 301   3                  FM31256_CS = 0;           // CSÀ­µÍ
- 302   3                  spi_send_byte(FM31256_CMD_READ);        // ·¢ËÍ¶ÁÃüÁî
- 303   3                  spi_send_byte((address >> 16) & 0xFF);  // ·¢ËÍµØÖ·¸ßÎ»
- 304   3                  spi_send_byte((address >> 8) & 0xFF);   // ·¢ËÍµØÖ·ÖÐÎ»
- 305   3                  spi_send_byte(address & 0xFF);          // ·¢ËÍµØÖ·µÍÎ»
- 306   3                  
- 307   3                  for(i = 0; i < verify_len; i++) {
- 308   4                      verify_buffer[i] = spi_receive_byte(); // ¶ÁÈ¡ÑéÖ¤Êý¾Ý
- 309   4                  }
- 310   3                  
- 311   3                  FM31256_CS = 1;           // CSÀ­¸ß
- 312   3                  
- 313   3                  // ±È½ÏÔ­Ê¼¶ÁÈ¡ºÍÑéÖ¤¶ÁÈ¡µÄÊý¾Ý
- 314   3      ;
- 315   3                  for(i = 0; i < verify_len; i++) {
- 316   4                      if(buffer[i] != verify_buffer[i]) {
- 317   5                          match = 0;
- 318   5                          break;
- 319   5                      }
- 320   4                  }
- 321   3                  
- 322   3                  if(match) {
- 323   4                      success = 1;
- 324   4                  } else {
- 325   4                      retries++;
- 326   4                      Delay_us(100); // ¶ÌÔÝÑÓÊ±ºóÖØÊÔ
- 327   4                  }
- 328   3              } else {
- 329   3                  success = 1;
- 330   3              }
- 331   2          }
- 332   1          
- 333   1          if(!success) {
- 334   2              return 0;
- 335   2          }
- 336   1          
- 337   1          return 1;
- 338   1      }
+ 302   2              I2C_Stop();
+ 303   2              SFRPAGE = SFRPAGE_SAVE;
+ 304   2              return FM31256_ERR_I2C;
+ 305   2          }
+ 306   1      
+ 307   1              err = I2C_SendData(byte);
+ 308   1              if (err != I2C_SUCCESS) {
+ 309   2                  I2C_Stop();
+ 310   2                  SFRPAGE = SFRPAGE_SAVE;
+ 311   2                  return FM31256_ERR_I2C;
+ 312   2              }
+ 313   1          // 6. Í£Ö¹Ìõ¼þ
+ 314   1          I2C_Stop();
+ 315   1        SFRPAGE = SFRPAGE_SAVE;
+ 316   1          return FM31256_OK;
+ 317   1      }
+ 318          
+ 319          
+ 320          
+ 321          // --------------- 1/4Ð´±£»¤---------------
+ 322          
+ 323          uint8_t FM31256_Write_Protect(uint8_t onf)
+ 324          {
+ 325   1      
+ 326   1          uint8_t err;
+ 327   1          if(onf)
+ 328   1          err=FM31256_Reg_Write(FM31256_REG_COMPANION_CTL,0x08);//´ò¿ª1/4Ð´±£»¤  £¬2.6vµÍµç¸´Î»
+ 329   1          else
+ 330   1          err=FM31256_Reg_Write(FM31256_REG_COMPANION_CTL,0x00);//¹Ø±ÕÐ´±£»¤  £¬2.6vµÍµç¸´Î»      
+ 331   1          return err;
+ 332   1      
+ 333   1      
+ 334   1      }
+ 335          
+ 336          
+ 337          
+ 338          
  339          
- 340          // Ð´ÈëÊý¾Ý£¨´øÖØÊÔ¡¢Ð£ÑéºÍÑéÖ¤£©
- 341          bool fm31256_write_data_verified(uint32_t address, const uint8_t *buffer, uint32_t length) {
- 342   1        
- 343   1          uint8_t retries = 0;
- 344   1          bool success = 0; 
- 345   1          uint8_t verify_buffer[16];  // ¸ù¾ÝÐèÒªµ÷Õû´óÐ¡ 
- 346   1          uint32_t verify_len ; 
- 347   1          bool read_success;  
- 348   1          if(address + length > FM31256_CAPACITY) {
- 349   2              return 0;
- 350   2          }
- 351   1          
+ 340          
+ 341          // --------------- RTCÊ±¼äº¯ÊýÊµÏÖ£¨ÊÊÅäTime_Struct£©---------------
+ 342          /**
+ 343           * @brief  ¶ÁÈ¡RTCµ±Ç°ÈÕÆÚ£¨BCD×ªÊ®½øÖÆ£¬´æÈëÓÃ»§½á¹¹Ìå£©
+ 344           * @param  date: Êä³ö²ÎÊý£¨ÓÃ»§µÄDate_StructÖ¸Õë£©
+ 345           * @retval ´íÎóÂë£¨FM31256_OK/ERR_PARAM/ERR_I2C£©
+ 346           */
+ 347          uint8_t FM31256_RTC_Read_Date(Date_Struct *date) {
+ 348   1          uint8_t err;
+ 349   1          uint8_t rtc_buf[3];  
+ 350   1      
+ 351   1          if (date == NULL) return FM31256_ERR_PARAM;
  352   1      
- 353   1          
- 354   1          while(retries < FM31256_RETRY_COUNT && !success) {
- 355   2              // ¼ÆËãÔ­Ê¼Êý¾ÝÐ£Ñé
- 356   2              uint16_t original_crc = calculate_crc16(buffer, length);
- 357   2              
- 358   2              uint32_t i;
- 359   2              for(i = 0; i < length; i++) {
- 360   3                  fm31256_write_enable();           // Ê¹ÄÜÐ´²Ù×÷
- 361   3                  
- 362   3                  FM31256_CS = 0;           // CSÀ­µÍ
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 7   
+ 353   1          // 2. RÎ»ÖÃ1£¨²¶»ñRTC¾²Ì¬Öµµ½¼Ä´æÆ÷£¬±ÜÃâ¶ÁÊ±Ìø±ä£©
+ 354   1          err=FM31256_Reg_Write(FM31256_RTC_CTRL,RTC_CTRL_R_MASK);
+ 355   1      
+ 356   1          // --------------------------------------------------------------------------------------------------
+ 357   1          err=FM31256_Reg_Read(FM31256_RTC_DAY,&rtc_buf[0]);
+ 358   1          err=FM31256_Reg_Read(FM31256_RTC_MONTH,&rtc_buf[1]);
+ 359   1          err=FM31256_Reg_Read(FM31256_RTC_YEAR,&rtc_buf[2]);  
+ 360   1          // 1. RÎ»ÖÃ0£¨×¼±¸²¶»ñ£¬±ØÐëÏÈÖÃ0²ÅÄÜ´¥·¢ÏÂ´Î²¶»ñ£©
+ 361   1          err=FM31256_Reg_Write(FM31256_RTC_CTRL,0);
+ 362   1          // -------------------------- ÐÞÕý£ºÊý×éÓ³Éä£¨ÌùºÏÊÖ²á¼Ä´æÆ÷Ë³Ðò£©--------------------------
+ 363   1          // rtc_buf[0] = 0x02£¨Ãë£©¡¢rtc_buf[1] = 0x03£¨·Ö£©¡¢rtc_buf[2] = 0x04£¨Ê±£©
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 7   
 
- 363   3                  
- 364   3                  spi_send_byte(FM31256_CMD_WRITE);       // ·¢ËÍÐ´ÃüÁî
- 365   3                  spi_send_byte(((address + i) >> 16) & 0xFF); // ·¢ËÍµØÖ·¸ßÎ»
- 366   3                  spi_send_byte(((address + i) >> 8) & 0xFF);  // ·¢ËÍµØÖ·ÖÐÎ»
- 367   3                  spi_send_byte((address + i) & 0xFF);    // ·¢ËÍµØÖ·µÍÎ»
- 368   3                  spi_send_byte(buffer[i]);               // Ð´ÈëÊý¾Ý
- 369   3                  
- 370   3                  FM31256_CS = 1;           // CSÀ­¸ß
- 371   3                  
- 372   3                  fm31256_wait_write_complete();          // µÈ´ýÐ´²Ù×÷Íê³É
- 373   3              }
- 374   2              
- 375   2              // Ê¹ÓÃ¹Ì¶¨´óÐ¡µÄÑéÖ¤»º³åÇø£¬±ÜÃâÊ¹ÓÃmalloc
- 376   2      
- 377   2               verify_len = (length < 16) ? length : 16;
- 378   2              
- 379   2              read_success = fm31256_read_data_with_retry(address, verify_buffer, verify_len);
- 380   2              if(read_success) {
- 381   3                  bool match = true;
- 382   3                  for(i = 0; i < verify_len; i++) {
- 383   4                      if(buffer[i] != verify_buffer[i]) {
- 384   5                          match = false;
- 385   5                          break;
- 386   5                      }
- 387   4                  }
- 388   3                  
- 389   3                  if(match) {
- 390   4                      // ¶îÍâµÄÐ£Ñé£ºÔÙ´Î¶ÁÈ¡Ç°¼¸¸ö×Ö½ÚÈ·ÈÏ
- 391   4                      uint8_t extra_verify[4];
- 392   4                      uint32_t extra_len = (length < 4) ? length : 4;
- 393   4                      bool extra_success = fm31256_read_data_with_retry(address, extra_verify, extra_len);
- 394   4                      
- 395   4                      if(extra_success) {
- 396   5                          bool extra_match = true;
- 397   5                          for(i = 0; i < extra_len; i++) {
- 398   6                              if(buffer[i] != extra_verify[i]) {
- 399   7                                  extra_match = false;
- 400   7                                  break;
- 401   7                              }
- 402   6                          }
- 403   5                          
- 404   5                          if(extra_match) {
- 405   6                              success = true;
- 406   6                          }
- 407   5                      }
- 408   4                  }
- 409   3              }
- 410   2              
- 411   2              retries++;
- 412   2              
- 413   2              if(!success) {
- 414   3                  Delay_us(100); // ¶ÌÔÝÑÓÊ±ºóÖØÊÔ
- 415   3              }
- 416   2          }
- 417   1          
- 418   1          if(!success) {
- 419   2              return false;
- 420   2          }
- 421   1          
- 422   1          return true;
- 423   1      }
- 424          
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 8   
+ 364   1          // rtc_buf[3] = 0x05£¨ÐÇÆÚ£©¡¢rtc_buf[4] = 0x06£¨ÈÕ£©¡¢rtc_buf[5] = 0x07£¨ÔÂ£©¡¢rtc_buf[6] = 0x08£¨Äê£
+             -©
+ 365   1          date->day    = BCD_TO_DEC(rtc_buf[0]);  // ÈÕ¶ÔÓ¦rtc_buf[4]£¨Ô­buf[3]ÊÇÐÇÆÚ£©
+ 366   1          date->month  = BCD_TO_DEC(rtc_buf[1]);  // ÔÂ¶ÔÓ¦rtc_buf[5]£¨Ô­buf[4]ÊÇÈÕ£©
+ 367   1          date->year   = BCD_TO_DEC(rtc_buf[2]);  // Äê¶ÔÓ¦rtc_buf[6]£¨±£ÁôÔ­ÓÐ£©
+ 368   1          // --------------------------------------------------------------------------------------------------
+ 369   1          return err;
+ 370   1      }
+ 371          /**
+ 372           * @brief  ¶ÁÈ¡RTCµ±Ç°Ê±¼ä£¨BCD×ªÊ®½øÖÆ£¬´æÈëÓÃ»§½á¹¹Ìå£©
+ 373           * @param  time: Êä³ö²ÎÊý£¨ÓÃ»§µÄDate_StructÖ¸Õë£©
+ 374           * @retval ´íÎóÂë£¨FM31256_OK/ERR_PARAM/ERR_I2C£©
+ 375           */
+ 376          uint8_t FM31256_RTC_Read_Time(Time_Struct *time) {
+ 377   1          uint8_t err;
+ 378   1          uint8_t rtc_buf[3];  
+ 379   1      
+ 380   1          if (time == NULL) return FM31256_ERR_PARAM;
+ 381   1      
+ 382   1          // 2. RÎ»ÖÃ1£¨²¶»ñRTC¾²Ì¬Öµµ½¼Ä´æÆ÷£¬±ÜÃâ¶ÁÊ±Ìø±ä£©
+ 383   1          err=FM31256_Reg_Write(FM31256_RTC_CTRL,RTC_CTRL_R_MASK);
+ 384   1          // --------------------------------------------------------------------------------------------------
+ 385   1          err=FM31256_Reg_Read(FM31256_RTC_SEC,&rtc_buf[0]);
+ 386   1          err=FM31256_Reg_Read(FM31256_RTC_MIN,&rtc_buf[1]);
+ 387   1          err=FM31256_Reg_Read(FM31256_RTC_HOUR,&rtc_buf[2]);  
+ 388   1          // 1. RÎ»ÖÃ0£¨×¼±¸²¶»ñ£¬±ØÐëÏÈÖÃ0²ÅÄÜ´¥·¢ÏÂ´Î²¶»ñ£©
+ 389   1          err=FM31256_Reg_Write(FM31256_RTC_CTRL,0);
+ 390   1      
+ 391   1          // -------------------------- ÐÞÕý£ºÊý×éÓ³Éä£¨ÌùºÏÊÖ²á¼Ä´æÆ÷Ë³Ðò£©--------------------------
+ 392   1          // rtc_buf[0] = 0x02£¨Ãë£©¡¢rtc_buf[1] = 0x03£¨·Ö£©¡¢rtc_buf[2] = 0x04£¨Ê±£©
+ 393   1          // rtc_buf[3] = 0x05£¨ÐÇÆÚ£©¡¢rtc_buf[4] = 0x06£¨ÈÕ£©¡¢rtc_buf[5] = 0x07£¨ÔÂ£©¡¢rtc_buf[6] = 0x08£¨Äê£
+             -©
+ 394   1          time->second = BCD_TO_DEC(rtc_buf[0]);  // Ãë¶ÔÓ¦rtc_buf[0]£¨Ô­buf[2]ÊÇÊ±£©
+ 395   1          time->minute = BCD_TO_DEC(rtc_buf[1]);  // ·Ö¶ÔÓ¦rtc_buf[1]£¨Ô­buf[3]ÊÇÃë£©
+ 396   1          time->hour   = BCD_TO_DEC(rtc_buf[2]);  // Ê±¶ÔÓ¦rtc_buf[2]£¨Ô­buf[4]ÊÇ·Ö£©
+ 397   1          // --------------------------------------------------------------------------------------------------
+ 398   1          return err;
+ 399   1      }
+ 400          
+ 401          static uint8_t Date_Validate(Date_Struct *date)
+ 402          {
+ 403   1             uint8_t max_day = 31;
+ 404   1          // »ù´¡·¶Î§Ð£Ñé
+ 405   1          if (date->month < 1 || date->month > 12) {
+ 406   2              return 1;  // ÔÂ·Ý·Ç·¨
+ 407   2          }
+ 408   1          
+ 409   1          if (date->day < 1) {
+ 410   2              return 1;  // ÈÕÆÚÐ¡ÓÚ1
+ 411   2          }
+ 412   1      
+ 413   1          // ¸÷ÔÂ·Ý×î´óÈÕÆÚ
+ 414   1      
+ 415   1          switch(date->month) {
+ 416   2              case 2:  // 2ÔÂ£¬´¦ÀíÈòÄê
+ 417   2                  // ÈòÄêÅÐ¶Ï£ºÄÜ±»4Õû³ýÇÒ²»ÊÇÕû°ÙÄê£¬»òÄÜ±»400Õû³ý£¨ÕâÀïÖ»´¦Àí0-99Äê£¬¼ò»¯ÎªÄÜ±»4Õû³ý£©
+ 418   2                  if (((date->year % 4) == 0) && (date->year != 0)) {
+ 419   3                      max_day = 29;
+ 420   3                  } else {
+ 421   3                      max_day = 28;
+ 422   3                  }
+ 423   2                  break;
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 8   
 
- 425          // ´æ´¢Æ÷½¡¿µ¼ì²é
- 426          bool fm31256_health_check() {
- 427   1        
- 428   1          uint8_t test_data = 0x55;
- 429   1          uint8_t read_data = 0;
- 430   1          uint32_t test_addr = 0x00;
- 431   1          bool write_result=0;
- 432   1          bool read_result=0XFF;    
- 433   1          // ¶ÁÈ¡×´Ì¬¼Ä´æÆ÷
- 434   1          uint8_t status = fm31256_read_status_with_retry();
- 435   1          
- 436   1          // ¼ì²éWIPÎ»
- 437   1          if(status & FM31256_STATUS_WIP) {
- 438   2              // Ð´²Ù×÷½øÐÐÖÐ£¬µÈ´ýÍê³É
- 439   2              fm31256_wait_write_complete();
+ 424   2              case 4: case 6: case 9: case 11:  // Ð¡ÔÂ
+ 425   2                  max_day = 30;
+ 426   2                  break;
+ 427   2              default:  // ´óÔÂ
+ 428   2                  max_day = 31;
+ 429   2                  break;
+ 430   2          }
+ 431   1      
+ 432   1          // ÈÕÆÚ³¬³öµ±ÔÂ×î´óÌìÊý
+ 433   1          if (date->day > max_day) {
+ 434   2              return 1;
+ 435   2          }
+ 436   1      
+ 437   1          // Äê·Ý·¶Î§Ð£Ñé£¨¸ù¾ÝFM31256Êµ¼ÊÖ§³Ö·¶Î§µ÷Õû£¬Í¨³£ÊÇ0-99£©
+ 438   1          if (date->year > 99) {
+ 439   2              return 1;
  440   2          }
- 441   1          
- 442   1          // ¼òµ¥¶ÁÐ´²âÊÔ
- 443   1      
- 444   1          
- 445   1          write_result = fm31256_write_data_verified(test_addr, &test_data, 1);
- 446   1          if(!write_result) {
- 447   2              return false;
- 448   2          }
- 449   1          
- 450   1          read_result = fm31256_read_data_with_retry(test_addr, &read_data, 1);
- 451   1          if(!read_result) {
- 452   2              return false;
- 453   2          }
- 454   1          
- 455   1          if(test_data == read_data) {
- 456   2              return true; // ½¡¿µ¼ì²éÍ¨¹ý
- 457   2          } else {
- 458   2              return false; // ½¡¿µ¼ì²éÊ§°Ü
- 459   2          }
- 460   1      }
- 461          
- 462          // ÑéÖ¤Êý¾Ý¿éÍêÕûÐÔ
- 463          bool verify_data_integrity(const uint8_t *send_data, uint8_t data_size) {
- 464   1        
- 465   1         uint16_t calc_checksum;
- 466   1         uint16_t stored_checksum;
- 467   1         uint16_t magic;
- 468   1          if(data_size < 4) return false; // Êý¾ÝÌ«Ð¡ÎÞ·¨ÑéÖ¤
- 469   1          
- 470   1          // ¼ì²éÄ§ÊýÍ·
- 471   1           magic = ((uint16_t)send_data[1] << 8) | send_data[0];
- 472   1          if(magic != FM31256_MAGIC_HEADER) {
- 473   2              return false;
- 474   2          }
- 475   1          
- 476   1          // ¼ÆËãÐ£ÑéºÍ²¢ÑéÖ¤
- 477   1           calc_checksum = calculate_crc16(send_data, data_size - 2); // ²»°üº¬Ð£ÑéºÍ±¾Éí
- 478   1           stored_checksum = ((uint16_t)send_data[data_size-1] << 8) | send_data[data_size-2];
- 479   1          
- 480   1          return calc_checksum == stored_checksum;
- 481   1      }
- 482          
- 483          // ¶ÁÈ¡ÏµÍ³²ÎÊý
- 484          bool read_system_param(system_param_t *param) {
- 485   1          uint8_t buffer[SYS_PARAM_SIZE]; 
- 486   1          if(param == NULL) return false;
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 9   
+ 441   1      
+ 442   1          return 0;  // ÈÕÆÚºÏ·¨
+ 443   1      }
+ 444          /**
+ 445           * @brief FM31256 RTCÈÕÆÚÐ´Èëº¯Êý£¨Ôö¼ÓÈÕÆÚÐ£Ñé£©
+ 446           * @param date ÈÕÆÚ½á¹¹ÌåÖ¸Õë
+ 447           * @return ´íÎóÂë£º0-³É¹¦£¬FM31256_ERR_PARAM-²ÎÊý¿Õ£¬FM31256_ERR_DATE-ÈÕÆÚ·Ç·¨£¬ÆäËû-¼Ä´æÆ÷²Ù×÷´íÎó
+ 448           */
+ 449          uint8_t FM31256_RTC_Write_Date(Date_Struct *date) {
+ 450   1          uint8_t err;
+ 451   1          uint8_t rtc_buf[3];
+ 452   1          
+ 453   1          // 1. ²ÎÊý¿ÕÖ¸ÕëÐ£Ñé
+ 454   1          if (date == NULL) {
+ 455   2              return FM31256_ERR_PARAM;
+ 456   2          }
+ 457   1      
+ 458   1          // 2. ÐÂÔö£ºÈÕÆÚºÏ·¨ÐÔÐ£Ñé
+ 459   1          err = Date_Validate(date);
+ 460   1          if (err != 0) {
+ 461   2              return err;  // ÈÕÆÚ·Ç·¨£¬Ö±½Ó·µ»Ø´íÎó
+ 462   2          }
+ 463   1      
+ 464   1          // 3. Ê®½øÖÆ×ªBCD£¬Ìî³äRTC»º³åÇø
+ 465   1          rtc_buf[0] = DEC_TO_BCD(date->day);    // ÈÕÆÚ
+ 466   1          rtc_buf[1] = DEC_TO_BCD(date->month);  // ÔÂ·Ý
+ 467   1          rtc_buf[2] = DEC_TO_BCD(date->year);   // Äê·Ý
+ 468   1      
+ 469   1          // 4. WÎ»ÖÃ1£¨¶³½áRTC£¬ÔÊÐíÐ´Ê±¼ä¼Ä´æÆ÷£©
+ 470   1          err = FM31256_Reg_Write(FM31256_RTC_CTRL, RTC_CTRL_W_MASK);
+ 471   1          if (err != 0) {
+ 472   2              return err;  // Ð´Èë¿ØÖÆ¼Ä´æÆ÷Ê§°Ü£¬·µ»Ø´íÎó
+ 473   2          }
+ 474   1      
+ 475   1          // ×¢£ºÔ­´úÂë´Ë´¦ÊÇ¶Á¼Ä´æÆ÷£¬Ó¦¸ÃÊÇ±ÊÎó£¬ÐÞÕýÎªÐ´¼Ä´æÆ÷
+ 476   1          err = FM31256_Reg_Write(FM31256_RTC_DAY, rtc_buf[0]);
+ 477   1          if (err != 0) return err;
+ 478   1          
+ 479   1          err = FM31256_Reg_Write(FM31256_RTC_MONTH, rtc_buf[1]);
+ 480   1          if (err != 0) return err;
+ 481   1          
+ 482   1          err = FM31256_Reg_Write(FM31256_RTC_YEAR, rtc_buf[2]);  
+ 483   1          if (err != 0) return err;
+ 484   1      
+ 485   1          // 5. RÎ»ÖÃ0£¨×¼±¸²¶»ñ£¬±ØÐëÏÈÖÃ0²ÅÄÜ´¥·¢ÏÂ´Î²¶»ñ£©
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 9   
 
- 487   1          
- 488   1      
- 489   1          if(!fm31256_read_data_with_retry(SYS_PARAM_ADDR, buffer, SYS_PARAM_SIZE)) {
- 490   2              return false;
- 491   2          }
- 492   1          
- 493   1          // ÑéÖ¤Êý¾ÝÍêÕûÐÔ
- 494   1          if(!verify_data_integrity(buffer, SYS_PARAM_SIZE)) {
- 495   2              return false;
- 496   2          }
- 497   1          
- 498   1          // ¸´ÖÆÊý¾Ýµ½½á¹¹Ìå
- 499   1          memcpy(param, buffer, sizeof(system_param_t));
- 500   1          return true;
- 501   1      }
- 502          
- 503          // Ð´ÈëÏµÍ³²ÎÊý
- 504          bool write_system_param(const system_param_t *param) {
- 505   1          system_param_t temp_param;
- 506   1          if(param == NULL) return false;
- 507   1          
- 508   1          // ¼ÆËãÐ£ÑéºÍ
- 509   1           temp_param = *param;
- 510   1          temp_param.checksum = calculate_crc16((uint8_t*)&temp_param, 
- 511   1                                               sizeof(system_param_t) - sizeof(uint16_t));
- 512   1          
- 513   1          return fm31256_write_data_verified(SYS_PARAM_ADDR, 
- 514   1                                            (uint8_t*)&temp_param, 
- 515   1                                            sizeof(system_param_t));
- 516   1      }
- 517          
- 518          // ¶ÁÈ¡Ð£±í²ÎÊý
- 519          bool read_calibration_param(calibration_param_t *param) {
- 520   1          uint8_t buffer[CAL_PARAM_SIZE]; 
- 521   1          if(param == NULL) return false;
- 522   1          
- 523   1      
- 524   1          if(!fm31256_read_data_with_retry(CAL_PARAM_ADDR, buffer, CAL_PARAM_SIZE)) {
- 525   2              return false;
- 526   2          }
- 527   1          
- 528   1          // ÑéÖ¤Êý¾ÝÍêÕûÐÔ
- 529   1          if(!verify_data_integrity(buffer, CAL_PARAM_SIZE)) {
- 530   2              return false;
- 531   2          }
- 532   1          
- 533   1          // ¸´ÖÆÊý¾Ýµ½½á¹¹Ìå
- 534   1          memcpy(param, buffer, sizeof(calibration_param_t));
- 535   1          return true;
- 536   1      }
- 537          
- 538          // Ð´ÈëÐ£±í²ÎÊý£¨½öÔÚ³ö³§Ê±µ÷ÓÃ£©
- 539          bool write_calibration_param(const calibration_param_t *param) {
- 540   1        calibration_param_t temp_param ;
- 541   1          if(param == NULL) return false;
- 542   1          
- 543   1          // ¼ÆËãÐ£ÑéºÍ
- 544   1           temp_param = *param;
- 545   1          temp_param.checksum = calculate_crc16((uint8_t*)&temp_param, 
- 546   1                                               sizeof(calibration_param_t) - sizeof(uint16_t));
- 547   1          
- 548   1          return fm31256_write_data_verified(CAL_PARAM_ADDR, 
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 10  
+ 486   1          err = FM31256_Reg_Write(FM31256_RTC_CTRL, 0);
+ 487   1      
+ 488   1          return err;
+ 489   1      }
+ 490          /**
+ 491           * @brief Ê±¼äºÏ·¨ÐÔÐ£Ñéº¯Êý
+ 492           * @param time Ê±¼ä½á¹¹ÌåÖ¸Õë
+ 493           * @return ´íÎóÂë£ºFM31256_OK-ºÏ·¨£¬FM31256_ERR_TIME-·Ç·¨
+ 494           */
+ 495          static uint8_t Time_Validate(Time_Struct *time)
+ 496          {
+ 497   1          // Ð£ÑéÐ¡Ê±·¶Î§£¨24Ð¡Ê±ÖÆ£©
+ 498   1          if (time->hour > 23) {
+ 499   2              return 1;
+ 500   2          }
+ 501   1          
+ 502   1          // Ð£Ñé·ÖÖÓ·¶Î§
+ 503   1          if (time->minute > 59) {
+ 504   2              return 1;
+ 505   2          }
+ 506   1          
+ 507   1          // Ð£ÑéÃë·¶Î§
+ 508   1          if (time->second > 59) {
+ 509   2              return 1;
+ 510   2          }
+ 511   1          
+ 512   1          return FM31256_OK;  // Ê±¼äºÏ·¨
+ 513   1      }
+ 514          
+ 515          /**
+ 516           * @brief  Ð´ÈëRTCÊ±¼ä£¨Ê®½øÖÆ×ªBCD£¬´ÓÓÃ»§½á¹¹Ìå¶ÁÈ¡£©
+ 517           * @param  time: ÊäÈë²ÎÊý£¨ÓÃ»§µÄTime_StructÖ¸Õë£©
+ 518           * @retval ´íÎóÂë£¨FM31256_OK/ERR_PARAM/ERR_TIME/ERR_I2C£©
+ 519           */
+ 520          uint8_t FM31256_RTC_Write_Time( Time_Struct *time) {
+ 521   1          uint8_t err;
+ 522   1          uint8_t rtc_buf[3];
+ 523   1          
+ 524   1          // 1. ¿ÕÖ¸Õë²ÎÊýÐ£Ñé
+ 525   1          if (time == NULL) {
+ 526   2              return FM31256_ERR_PARAM;
+ 527   2          }
+ 528   1      
+ 529   1          // 2. ÐÂÔö£ºÊ±¼äºÏ·¨ÐÔÐ£Ñé
+ 530   1          err = Time_Validate(time);
+ 531   1          if (err != FM31256_OK) {
+ 532   2              return err;  // Ê±¼ä·Ç·¨£¬Ö±½Ó·µ»Ø´íÎó
+ 533   2          }
+ 534   1      
+ 535   1          // 3. Ê®½øÖÆ×ªBCD£¬Ìî³äRTC»º³åÇø
+ 536   1          rtc_buf[0] = DEC_TO_BCD(time->second);  // 0x02£ºÃë£¨BCD£©
+ 537   1          rtc_buf[1] = DEC_TO_BCD(time->minute);  // 0x03£º·Ö£¨BCD£©
+ 538   1          rtc_buf[2] = DEC_TO_BCD(time->hour);    // 0x04£ºÊ±£¨BCD£¬24Ð¡Ê±ÖÆ£©
+ 539   1      
+ 540   1          // 4. WÎ»ÖÃ1£¨¶³½áRTC£¬ÔÊÐíÐ´Ê±¼ä¼Ä´æÆ÷£©
+ 541   1          err = FM31256_Reg_Write(FM31256_RTC_CTRL, RTC_CTRL_W_MASK);
+ 542   1          if (err != FM31256_OK) {
+ 543   2              return FM31256_ERR_I2C;  // I2CÐ´Ê§°Ü
+ 544   2          }
+ 545   1      
+ 546   1          // 5. ÐÞÕýÔ­´úÂëÂß¼­´íÎó£º½«¶Á¼Ä´æÆ÷¸ÄÎªÐ´¼Ä´æÆ÷£¨ºËÐÄÐÞÕý£©
+ 547   1          err = FM31256_Reg_Write(FM31256_RTC_SEC, rtc_buf[0]);
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 10  
 
- 549   1                                            (uint8_t*)&temp_param, 
- 550   1                                            sizeof(calibration_param_t));
- 551   1      }
- 552          
- 553          // Ìí¼ÓÊÂ¼þ¼ÇÂ¼
- 554          bool add_event_record(const event_record_t *event) {
- 555   1            uint16_t record_idx = 0;
- 556   1          bool found_empty = false;
- 557   1          uint32_t addr;
- 558   1              event_record_t temp_event;  
- 559   1        event_record_t write_event;
- 560   1          if(event == NULL) return false;
- 561   1          
- 562   1          // ²éÕÒµÚÒ»¸öÎÞÐ§µÄ¼ÇÂ¼Î»ÖÃ
- 563   1      
- 564   1          
- 565   1          for(record_idx = 0; record_idx < MAX_EVENT_RECORDS; record_idx++) {
- 566   2      
- 567   2              addr = EVENT_RECORD_ADDR + (record_idx * EVENT_RECORD_SIZE);
- 568   2              
- 569   2              if(!fm31256_read_data_with_retry(addr, (uint8_t*)&temp_event, EVENT_RECORD_SIZE)) {
- 570   3                  continue; // ¶ÁÈ¡Ê§°Ü£¬¼ÌÐø²éÕÒ
- 571   3              }
- 572   2              
- 573   2              // ¼ì²é¼ÇÂ¼ÊÇ·ñÓÐÐ§
- 574   2              if(temp_event.valid_flag != 0xFF) {
- 575   3                  found_empty = true;
- 576   3                  break;
- 577   3              }
- 578   2          }
- 579   1          
- 580   1          if(!found_empty) {
- 581   2              // Èç¹ûËùÓÐ¼ÇÂ¼¶¼ÒÑÂú£¬¸²¸Ç×î¾ÉµÄ¼ÇÂ¼£¨Ñ­»·Ê¹ÓÃ£©
- 582   2              record_idx = 0;
- 583   2          }
- 584   1          
- 585   1          // ×¼±¸ÒªÐ´ÈëµÄÊÂ¼þ¼ÇÂ¼
- 586   1           write_event = *event;
- 587   1          write_event.magic = FM31256_MAGIC_HEADER;
- 588   1          write_event.checksum = calculate_crc16((uint8_t*)&write_event, 
- 589   1                                               sizeof(event_record_t) - 3); // ²»°üº¬Ð£ÑéºÍºÍÓÐÐ§±êÖ¾
- 590   1          write_event.valid_flag = 0xFF; // ±ê¼ÇÎªÓÐÐ§
- 591   1          
- 592   1          addr = EVENT_RECORD_ADDR + (record_idx * EVENT_RECORD_SIZE);
- 593   1          return fm31256_write_data_verified(addr, (uint8_t*)&write_event, EVENT_RECORD_SIZE);
- 594   1      }
- 595          
- 596          // ¶ÁÈ¡ÊÂ¼þ¼ÇÂ¼
- 597          bool read_event_record(uint16_t index, event_record_t *event) {
- 598   1          uint32_t addr;  
- 599   1          if(event == NULL || index >= MAX_EVENT_RECORDS) return false;
- 600   1          
- 601   1          addr = EVENT_RECORD_ADDR + (index * EVENT_RECORD_SIZE);
- 602   1          if(!fm31256_read_data_with_retry(addr, (uint8_t*)event, EVENT_RECORD_SIZE)) {
- 603   2              return false;
- 604   2          }
- 605   1          
- 606   1          // ÑéÖ¤Êý¾ÝÍêÕûÐÔ
- 607   1          if(!verify_data_integrity((uint8_t*)event, EVENT_RECORD_SIZE)) {
- 608   2              return false;
- 609   2          }
- 610   1          
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 11  
-
- 611   1          return true;
- 612   1      }
- 613          
- 614          // »ñÈ¡ÓÐÐ§ÊÂ¼þ¼ÇÂ¼ÊýÁ¿
- 615          uint16_t get_event_record_count() {
- 616   1          uint16_t count = 0;
- 617   1          uint16_t i;
- 618   1          
- 619   1          for(i = 0; i < MAX_EVENT_RECORDS; i++) {
- 620   2              event_record_t temp_event;
- 621   2              uint32_t addr = EVENT_RECORD_ADDR + (i * EVENT_RECORD_SIZE);
- 622   2              
- 623   2              if(fm31256_read_data_with_retry(addr, (uint8_t*)&temp_event, EVENT_RECORD_SIZE)) {
- 624   3                  if(temp_event.valid_flag == 0xFF && 
- 625   3                     verify_data_integrity((uint8_t*)&temp_event, EVENT_RECORD_SIZE)) {
- 626   4                      count++;
- 627   4                  }
- 628   3              }
- 629   2          }
- 630   1          
- 631   1          return count;
- 632   1      }
- 633          
- 634          // ³õÊ¼»¯Ê±¼ä£¨Èç¹ûÊ±¼äÎÞÐ§ÔòÉèÖÃÎªÄ¬ÈÏÊ±¼ä£©
- 635          void init_time() {
- 636   1          time_struct current_time;
- 637   1          
- 638   1          // ³¢ÊÔ¶ÁÈ¡µ±Ç°Ê±¼ä
- 639   1          if(get_current_time(&current_time)) {
- 640   2              // ¼ì²éÊ±¼äÊÇ·ñÓÐÐ§
- 641   2              if(current_time.year > 50) { // ¼ÙÉèÓÐÐ§Äê·ÝÔÚ2000-2050Ö®¼ä
- 642   3                  return; // Ê±¼äÓÐÐ§£¬Ö±½Ó·µ»Ø
- 643   3              }
- 644   2          }
- 645   1          
- 646   1          // ÉèÖÃÄ¬ÈÏÊ±¼ä£¨2023Äê1ÔÂ1ÈÕ 00:00:00£©
- 647   1          current_time.second = 0;
- 648   1          current_time.minute = 0;
- 649   1          current_time.hour = 0;
- 650   1          current_time.day = 1;
- 651   1          current_time.month = 1;
- 652   1          current_time.year = 23; // 2023Äê
- 653   1          
- 654   1          set_current_time(&current_time);
- 655   1      }
- 656          
- 657          // ³õÊ¼»¯´æ´¢Æ÷²¼¾Ö
- 658          void init_storage_layout() {
- 659   1          // ³õÊ¼»¯ÏµÍ³²ÎÊýÇøÓò£¨Èç¹ûÐèÒª£©
- 660   1          system_param_t sys_param;
- 661   1          calibration_param_t cal_param;  
- 662   1          if(!read_system_param(&sys_param)) {
- 663   2              // Èç¹û¶ÁÈ¡Ê§°Ü£¬³õÊ¼»¯Ä¬ÈÏ²ÎÊý
- 664   2              memset(&sys_param, 0, sizeof(sys_param));
- 665   2              sys_param.param_version = 1;
- 666   2              sys_param.device_id = 0x1234;
- 667   2              sys_param.calibration_date = 0x230101; // 2023Äê1ÔÂ1ÈÕ
- 668   2              sys_param.temperature_offset = 0.0f;
- 669   2              sys_param.voltage_ref = 3.3f;
- 670   2              sys_param.alarm_threshold = 80;
- 671   2              write_system_param(&sys_param);
- 672   2          }
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 12  
-
- 673   1          
- 674   1          // ³õÊ¼»¯Ð£±í²ÎÊýÇøÓò£¨Èç¹ûÐèÒª£©
- 675   1      
- 676   1          if(!read_calibration_param(&cal_param)) {
- 677   2              // Èç¹û¶ÁÈ¡Ê§°Ü£¬³õÊ¼»¯Ä¬ÈÏÐ£±í²ÎÊý
- 678   2              memset(&cal_param, 0, sizeof(cal_param));
- 679   2              cal_param.cal_version = 1;
- 680   2              cal_param.gain_factor = 1.0f;
- 681   2              cal_param.offset_value = 0.0f;
- 682   2              cal_param.cal_date = 0x230101; // 2023Äê1ÔÂ1ÈÕ
- 683   2              write_calibration_param(&cal_param);
- 684   2          }
- 685   1      }
- 686          
- 687          // ÏµÍ³²ÎÊý´æ´¢²âÊÔº¯Êý
- 688          void sys_param_test() {
- 689   1        
- 690   1            system_param_t test_param;
- 691   1            calibration_param_t cal_param;
- 692   1            event_record_t event;
- 693   1          // ³õÊ¼»¯´æ´¢Æ÷
- 694   1          if(!fm31256_init()) {
- 695   2              return;
- 696   2          }
- 697   1          
- 698   1          // ³õÊ¼»¯Ê±¼ä
- 699   1          init_time();
- 700   1          
- 701   1          // Ö´ÐÐ½¡¿µ¼ì²é
- 702   1          if(!fm31256_health_check()) {
- 703   2              return;
- 704   2          }
- 705   1          
- 706   1          // ²âÊÔÏµÍ³²ÎÊý¶ÁÐ´
- 707   1      
- 708   1          test_param.param_version = 1;
- 709   1          test_param.device_id = 0x55AA;
- 710   1          test_param.calibration_date = 0x230515; // 2023Äê5ÔÂ15ÈÕ
- 711   1          test_param.temperature_offset = 2.5f;
- 712   1          test_param.voltage_ref = 3.3f;
- 713   1          test_param.alarm_threshold = 85;
- 714   1          
- 715   1          if(write_system_param(&test_param)) {
- 716   2              system_param_t read_param;
- 717   2              if(read_system_param(&read_param)) {
- 718   3                  // ²ÎÊý¶ÁÐ´²âÊÔ³É¹¦
- 719   3              }
- 720   2          }
- 721   1          
- 722   1          // ²âÊÔÐ£±í²ÎÊý¶ÁÐ´
- 723   1      
- 724   1          cal_param.cal_version = 1;
- 725   1          cal_param.gain_factor = 1.05f;
- 726   1          cal_param.offset_value = 0.1f;
- 727   1          cal_param.cal_date = 0x230515;
- 728   1          
- 729   1          if(write_calibration_param(&cal_param)) {
- 730   2              calibration_param_t read_cal;
- 731   2              if(read_calibration_param(&read_cal)) {
- 732   3                  // Ð£±í²ÎÊý¶ÁÐ´²âÊÔ³É¹¦
- 733   3              }
- 734   2          }
-C51 COMPILER V9.60.0.0   FM31256                                                           12/11/2025 10:35:24 PAGE 13  
-
- 735   1          
- 736   1          // ²âÊÔÊÂ¼þ¼ÇÂ¼
- 737   1      
- 738   1          event.event_type = 1; // ¹ÊÕÏÊÂ¼þ
- 739   1          event.event_code = 0x01;
- 740   1          get_current_time(&event.timestamp);
- 741   1          
- 742   1          if(add_event_record(&event)) {
- 743   2              // ÊÂ¼þ¼ÇÂ¼Ìí¼Ó³É¹¦
- 744   2          }
- 745   1      }
- 746          
- 747          // ¶¨Ê±Æ÷0ÖÐ¶Ï·þÎñ³ÌÐò£¨ÓÃÓÚÊ±¼ä¸üÐÂ£©
- 748          //void timer0_isr() interrupt 1 {
- 749          //    static uint16_t tick_count = 0;
- 750          //    
- 751          //    // ÖØÐÂ¼ÓÔØ¶¨Ê±Æ÷Öµ£¨¼ÙÉè12MHz¾§Õñ£¬12TÄ£Ê½£¬¶¨Ê±50ms£©
- 752          //    TH0 = 0x3C;
- 753          //    TL0 = 0xB0;
- 754          //    
- 755          //    tick_count++;
- 756          //    
- 757          //    // Ã¿Ãë¸üÐÂÒ»´ÎÊ±¼ä£¨20¸ö50ms = 1Ãë£©
- 758          //    if(tick_count >= 20) {
- 759          //        tick_count = 0;
- 760          //        update_time();
- 761          //    }
- 762          //}
- 763          
+ 548   1          if (err != FM31256_OK) return FM31256_ERR_I2C;
+ 549   1          
+ 550   1          err = FM31256_Reg_Write(FM31256_RTC_MIN, rtc_buf[1]);
+ 551   1          if (err != FM31256_OK) return FM31256_ERR_I2C;
+ 552   1          
+ 553   1          err = FM31256_Reg_Write(FM31256_RTC_HOUR, rtc_buf[2]);  
+ 554   1          if (err != FM31256_OK) return FM31256_ERR_I2C;
+ 555   1      
+ 556   1          // 6. RÎ»ÖÃ0£¨×¼±¸²¶»ñ£¬±ØÐëÏÈÖÃ0²ÅÄÜ´¥·¢ÏÂ´Î²¶»ñ£©
+ 557   1          err = FM31256_Reg_Write(FM31256_RTC_CTRL, 0);
+ 558   1          if (err != FM31256_OK) {
+ 559   2              return FM31256_ERR_I2C;
+ 560   2          }
+ 561   1      
+ 562   1          return FM31256_OK;  // È«²¿²Ù×÷³É¹¦
+ 563   1      }
+ 564          
+ 565          
+ 566          
+ 567          
+ 568          
+ 569          // --------------- ¿´ÃÅ¹·º¯ÊýÊµÏÖ ---------------
+ 570          /**
+ 571           * @brief  ÆôÓÃFM31256¿´ÃÅ¹·
+ 572           * @param  timeout: Òç³öÊ±¼ä£¨WDG_1S~WDG_32S£©
+ 573           * @retval ´íÎóÂë£¨FM31256_OK/ERR_PARAM/ERR_I2C£©
+ 574           */
+ 575          uint8_t FM31256_WDG_Enable(uint8_t timeout) {
+ 576   1          uint8_t err;
+ 577   1          uint8_t wdg_cfg;
+ 578   1          if (timeout > WDG_32S) return FM31256_ERR_PARAM;
+ 579   1          wdg_cfg = 0x80 | (timeout & 0x07);  
+ 580   1          err=FM31256_Reg_Write(FM31256_REG_WDT_CTRL,wdg_cfg);  
+ 581   1          return err;
+ 582   1      }
+ 583          
+ 584          /**
+ 585           * @brief  ½ûÓÃFM31256¿´ÃÅ¹·
+ 586           * @retval ´íÎóÂë£¨FM31256_OK/ERR_I2C£©
+ 587           */
+ 588          uint8_t FM31256_WDG_Disable(void) {
+ 589   1          uint8_t err;  
+ 590   1          err=FM31256_Reg_Write(FM31256_REG_WDT_CTRL,0x00); 
+ 591   1          return err;
+ 592   1      }
+ 593          
+ 594          /**
+ 595           * @brief  ¿´ÃÅ¹·Î¹¹·£¨Òç³öÇ°µ÷ÓÃ£¬±ÜÃâ¸´Î»£©
+ 596           * @retval ´íÎóÂë£¨FM31256_OK/ERR_I2C£©
+ 597           */
+ 598          uint8_t FM31256_WDG_Feed(void) {
+ 599   1          uint8_t err;
+ 600   1          err=FM31256_Reg_Write(FM31256_REG_WDT_RESTART,0x0A);    
+ 601   1          return err;
+ 602   1      }
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =   3882    ----
+   CODE SIZE        =   2070    ----
    CONSTANT SIZE    =   ----    ----
-   XDATA SIZE       =   ----     417
+   XDATA SIZE       =   ----      68
    PDATA SIZE       =   ----    ----
+C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 11  
+
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----
    BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
 END OF MODULE INFORMATION.
 
 
-C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

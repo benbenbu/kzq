@@ -1,0 +1,117 @@
+C51 COMPILER V9.60.0.0   SPI                                                               01/09/2026 10:30:25 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE SPI
+OBJECT MODULE PLACED IN .\Objects\spi.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\bsp\src\spi.c LARGE OMF2 OPTIMIZE(5,SIZE) BROWSE NOINTPROMOTE 
+                    -INCDIR(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings\spi.ls
+                    -t) TABS(2) OBJECT(.\Objects\spi.obj)
+
+line level    source
+
+   1          #include "spi.h"
+   2          
+   3          
+   4          
+   5          // -------------------------- SPI 初始化 --------------------------
+   6          void SPI_Init(void) {
+   7   1          uint8_t spi0ckr;
+   8   1          char SFRPAGE_SAVE = SFRPAGE;
+   9   1          SFRPAGE = SPI0_PAGE; // 切换到 SPI0 模块 SFR 页（C8051F120 标准页地址）
+  10   1      
+  11   1      
+  12   1          SPI0CFG = 0x60;      // CPOL=0（空闲时SCK低），CPHA=0（第一个时钟沿采样），主机
+  13   1          SPI0CN = 0x00; 
+  14   1          //  配置 SPI 时钟频率
+  15   1          // 公式：SPI 时钟 = SYSCLK / (2 * (SPI0CKR + 1))
+  16   1          spi0ckr = (SYSCLK / (2 * SPI_CLOCK_FREQ)) - 1;
+  17   1          if (spi0ckr > 0xFF) spi0ckr = 0xFF; // 限制最大值
+  18   1          SPI0CKR = spi0ckr;
+  19   1      
+  20   1          // 启用 SPI0 模块
+  21   1      
+  22   1          NSSMD1=0;
+  23   1          NSSMD0=0;
+  24   1          SPIEN =1; 
+  25   1          SFRPAGE = SFRPAGE_SAVE;
+  26   1      
+  27   1      
+  28   1      }
+  29          
+  30          // 功能：发送tx_data字节，同时接收1字节并返回；超时返回SPI_TIMEOUT
+  31          uint8_t SPI_Transceive_Byte(uint8_t tx_data,uint8_t *read_data) {
+  32   1          // C89要求：变量声明放在函数开头
+  33   1          unsigned char SFRPAGE_SAVE = SFRPAGE;
+  34   1          unsigned int timeout = 0;
+  35   1      
+  36   1          if(read_data==NULL)
+  37   1            return SPI_PARA_ERR;
+  38   1      
+  39   1          SFRPAGE = SPI0_PAGE;
+  40   1      
+  41   1          // 等待SPI总线空闲（避免总线忙时写数据冲突）
+  42   1          timeout = 0;
+  43   1          while ((SPI0CFG & SPIBSY) != 0) {
+  44   2              timeout++;
+  45   2              if (timeout > 200) {  // 短超时，防止卡死
+  46   3                  SFRPAGE = SFRPAGE_SAVE;
+  47   3                  return SPI_TIMEOUT;
+  48   3              }
+  49   2          }
+  50   1      
+  51   1          // 等待发送缓冲器空（确保能写入新数据）
+  52   1          timeout = 0;
+  53   1          while ((TXBMT) == 0) {
+C51 COMPILER V9.60.0.0   SPI                                                               01/09/2026 10:30:25 PAGE 2   
+
+  54   2              timeout++;
+  55   2              if (timeout > 200) {
+  56   3                  SFRPAGE = SFRPAGE_SAVE;
+  57   3                  return SPI_TIMEOUT;
+  58   3              }
+  59   2          }
+  60   1      
+  61   1          // 写入发送数据，触发SPI传输（主模式自动输出SCK）
+  62   1          SPI0DAT = tx_data;
+  63   1      
+  64   1          // 等待传输完成（SPIF置1=发送完成+接收就绪）
+  65   1          timeout = 0;
+  66   1          while ((SPIF) == 0) {
+  67   2              timeout++;
+  68   2              if (timeout > 500) {  // ~800μs超时，适配多数从机响应
+  69   3                  SPI0CN &= ~SPIF;  // 超时强制清标志，避免后续异常
+  70   3                  SFRPAGE = SFRPAGE_SAVE;
+  71   3                  return SPI_TIMEOUT;
+  72   3              }
+  73   2          }
+  74   1      
+  75   1          // 读取接收的字节（全双工核心，必须读！否则SPIF清不掉）
+  76   1          *read_data = SPI0DAT;
+  77   1      
+  78   1          //清除SPIF标志，准备下一次传输
+  79   1          SPIF=0;
+  80   1      
+  81   1          // 恢复SFR分页，避免影响其他外设
+  82   1          SFRPAGE = SFRPAGE_SAVE;
+  83   1      
+  84   1          // 返回接收的字节
+  85   1          return SPI_OK;
+  86   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    172    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----       2
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

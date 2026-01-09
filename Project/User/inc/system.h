@@ -1,8 +1,7 @@
 #ifndef _SYSTEM_H
 #define _SYSTEM_H
 
-#include "config.h"
 
 void system_int();
-
+void Read_Time_Per_1s(void);
 #endif

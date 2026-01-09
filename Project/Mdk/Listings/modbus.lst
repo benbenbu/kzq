@@ -1,18 +1,18 @@
-C51 COMPILER V9.60.0.0   MODBUS                                                            12/11/2025 10:35:24 PAGE 1   
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE MODBUS
 OBJECT MODULE PLACED IN .\Objects\modbus.obj
-COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Modbus\modbus.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(..\Driver\inc;.
-                    -.\Mdk;..\User\inc;..\Modbus;..\Driver\font) DEBUG OBJECTEXTEND PRINT(.\Listings\modbus.lst) TABS(2) OBJECT(.\Objects\mod
-                    -bus.obj)
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Modbus\modbus.c LARGE OMF2 OPTIMIZE(5,SIZE) BROWSE NOINTPROMOTE INCDI
+                    -R(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings\modbus.lst)
+                    - TABS(2) OBJECT(.\Objects\modbus.obj)
 
 line level    source
 
    1          
    2          
    3          #include "modbus.h"
-   4          
+   4          #include "uart.h"
    5          
    6          
    7          // Modbus相关定义
@@ -62,7 +62,7 @@ line level    source
   51          // Modbus接收超时检查
   52          void Modbus_CheckTimeout() {
   53   1          if(modbus_timer_active && modbus_timeout_counter >= MODBUS_TIMEOUT_MS) {
-C51 COMPILER V9.60.0.0   MODBUS                                                            12/11/2025 10:35:24 PAGE 2   
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 2   
 
   54   2              // 超时，处理当前接收的数据包
   55   2              if(modbus_rx_index > 0) {
@@ -126,7 +126,7 @@ line level    source
  113   3                  
  114   3                  if(crc_received == crc_calculated) {
  115   4                      // CRC正确，处理功能码
-C51 COMPILER V9.60.0.0   MODBUS                                                            12/11/2025 10:35:24 PAGE 3   
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 3   
 
  116   4                      switch(function_code) {
  117   5                          case 0x02: // 读离散输入
@@ -190,7 +190,7 @@ line level    source
  175   2              
  176   2              // 发送响应
  177   2              UART0_SendArray(response, 5 + byte_count);
-C51 COMPILER V9.60.0.0   MODBUS                                                            12/11/2025 10:35:24 PAGE 4   
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 4   
 
  178   2          } else {
  179   2              // 发送错误响应
@@ -254,7 +254,7 @@ line level    source
  237   2              // 填充寄存器数据（示例：返回与保持寄存器相同的值）
  238   2      
  239   2              for(i = 0; i < num_regs; i++) {
-C51 COMPILER V9.60.0.0   MODBUS                                                            12/11/2025 10:35:24 PAGE 5   
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 5   
 
  240   3                  response[3 + i*2] = (modbus_registers[start_addr + i] >> 8) & 0xFF;
  241   3                  response[4 + i*2] = modbus_registers[start_addr + i] & 0xFF;
@@ -293,13 +293,17 @@ line level    source
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =   1301    ----
+   CODE SIZE        =   1348    ----
    CONSTANT SIZE    =   ----    ----
-   XDATA SIZE       =    466     796
+   XDATA SIZE       =    466     797
    PDATA SIZE       =   ----    ----
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----
    BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
 END OF MODULE INFORMATION.
 
 

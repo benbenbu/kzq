@@ -5,29 +5,46 @@
 #include "config.h"
 
 
-/*中文字符字节宽度*/
-#define CHN_CHAR_WIDTH 1   // UTF-8编码格式给3，GB2312编码格式给2
 
-/*字模基本单元*/
+
+
+// F8X6 
 typedef struct 
 {
-    char txt[CHN_CHAR_WIDTH + 1];          // 汉字索引
-    unsigned char dat[32];                      // 字模数据
+    char txt;          
+    unsigned char dat[24];                     
+
+} FONT_DATA_F8x6;
+extern const FONT_DATA_F8x6 code F8X6[];
+extern const unsigned char F8x6_COUNT;  // 声明为外部常量
+
+
+// F16X9 
+typedef struct 
+{
+    char txt;          
+    unsigned char dat[72];                     
+
+} FONT_DATA_F16x9;
+extern const FONT_DATA_F16x9 code F16X9[];
+extern const unsigned char F16x9_COUNT;  // 声明为外部常量
+
+
+typedef struct 
+{
+    char txt[2];          
+    unsigned char dat[144];                     
 
 } FONT_DATA;
-
-
-
-/*ASCII字模数据声明*/
-extern const u8 code F8X6[][6];
-extern const u8 code F16X9[][18];
-
-/*汉字字模数据声明*/
-
 extern const FONT_DATA code Hzk[];
 
-/*图像数据声明*/
+
+extern const unsigned int HZK_COUNT;  // 声明为外部常量
 
 
 
+extern const u8  code  PICTURE[];  //互感器图	
+
+extern const u8  code  PICTURE1[];//电容无填充	
+extern const u8  code  PICTURE2[];//电容无填充	
 #endif

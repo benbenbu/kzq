@@ -1,0 +1,380 @@
+C51 COMPILER V9.60.0.0   ADC_KEY                                                           01/09/2026 11:04:26 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE ADC_KEY
+OBJECT MODULE PLACED IN .\Objects\adc_key.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\device\src\adc_key.c LARGE OMF2 OPTIMIZE(5,SIZE) BROWSE NOINTP
+                    -ROMOTE INCDIR(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings
+                    -\adc_key.lst) TABS(2) OBJECT(.\Objects\adc_key.obj)
+
+line level    source
+
+   1          /*
+   2          *********************************************************************************************************
+   3          *
+   4          *   模块名称 : 按键驱动模块 (ADC版)
+   5          *   文件名称 : key.c
+   6          *   版    本 : V1.1
+   7          *   说    明 : 扫描ADC输入上的多个按键，具有软件滤波机制和FIFO。
+   8          *             支持：短按、弹起、长按、连发
+   9          *
+  10          *********************************************************************************************************
+  11          */
+  12          
+  13          #include "adc_key.h"
+  14          #include "math.h"
+  15          
+  16          // 外部获取ADC值（需由ADC中断更新）
+  17          
+  18          
+  19          
+  20          
+  21          //static KEY_T s_tBtn[KEY_COUNT];
+  22          //static KEY_FIFO_T s_tKey;
+  23          
+  24           KEY_T s_tBtn[KEY_COUNT];
+  25           KEY_FIFO_T s_tKey;
+  26          
+  27          static void bsp_InitKeyVar(void);
+  28          static void bsp_DetectKey(uint8_t i);
+  29          int GetAdcDetectedKey(void);  // 内部函数：根据ADC值返回当前按键索引
+  30          
+  31          extern unsigned int s_LastAdcValue ;  // 新增：记录上一次有效ADC值
+  32          
+  33          /*
+  34          *********************************************************************************************************
+  35          *   函 数 名: GetAdcDetectedKey
+  36          *   功能说明: 根据当前ADC值判断哪一个按键被按下
+  37          *   形    参: 无
+  38          *   返 回 值: 0~5 表示对应按键被按下；-1 表示无键
+  39          *********************************************************************************************************
+  40          */
+  41          int GetAdcDetectedKey(void) {
+  42   1          unsigned int val = g_adc_value;
+  43   1      
+  44   1          if ((val >= THRESHOLD_KEY0 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY0 + THRESHOLD_WINDOW)) 
+  45   1          {
+  46   2            return 0;
+  47   2          }
+  48   1          else if ((val >= THRESHOLD_KEY1 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY1 + THRESHOLD_WINDOW)) 
+  49   1          {
+  50   2      
+  51   2            return 1;
+  52   2          }
+  53   1          else if ((val >= THRESHOLD_KEY2 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY2 + THRESHOLD_WINDOW)) 
+C51 COMPILER V9.60.0.0   ADC_KEY                                                           01/09/2026 11:04:26 PAGE 2   
+
+  54   1          {
+  55   2      
+  56   2            return 2;
+  57   2          }
+  58   1          else if ((val >= THRESHOLD_KEY3 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY3 + THRESHOLD_WINDOW)) 
+  59   1          {
+  60   2      
+  61   2            return 3;
+  62   2          }
+  63   1          else if ((val >= THRESHOLD_KEY4 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY4 + THRESHOLD_WINDOW)) 
+  64   1          {
+  65   2      
+  66   2            return 4;
+  67   2          }
+  68   1          else if ((val >= THRESHOLD_KEY5 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY5 + THRESHOLD_WINDOW)) 
+  69   1          {
+  70   2            return 5;
+  71   2          }
+  72   1      
+  73   1          return -1;  // 无有效按键
+  74   1      }
+  75          static uint8_t s_StableKeyDetectCount = 0;
+  76          static int s_LastDetectedKey = -1;
+  77          #define ADC_STABLE_COUNT    3     // 稳定按键计数
+  78          int GetStableAdcDetectedKey(void) {
+  79   1            int current_key = GetAdcDetectedKey();
+  80   1          if (!g_adc_data_valid) {
+  81   2              s_StableKeyDetectCount = 0;
+  82   2              s_LastDetectedKey = -1;
+  83   2              return -1;
+  84   2          }
+  85   1          if (current_key == s_LastDetectedKey && current_key != -1) {
+  86   2              s_StableKeyDetectCount++;
+  87   2              if (s_StableKeyDetectCount >= ADC_STABLE_COUNT) return current_key;
+  88   2          } else {
+  89   2              s_StableKeyDetectCount = 0;
+  90   2              s_LastDetectedKey = current_key;
+  91   2          }
+  92   1          return -1;
+  93   1      }
+  94          
+  95          //int GetAdcDetectedKey(void) {
+  96          //    unsigned int val = g_adc_value;
+  97          
+  98          //    // 优化1：过滤ADC值突变（噪声导致的误判，阈值差>80+20=100则判定为噪声）
+  99          //    if (abs((int)val - (int)s_LastAdcValue) > (THRESHOLD_WINDOW + 20)) {
+ 100          //        return -1;
+ 101          //    }
+ 102          
+ 103          //    // 保留你的原始判断逻辑，适配80窗口（无需缩小窗口，因你的阈值间距足�
+             -�大）
+ 104          //    if ((val >= THRESHOLD_KEY0 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY0 + THRESHOLD_WINDOW)) {
+ 105          //        return 0;
+ 106          //    } else if ((val >= THRESHOLD_KEY1 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY1 + THRESHOLD_WINDOW))
+             - {
+ 107          //        return 1;
+ 108          //    } else if ((val >= THRESHOLD_KEY2 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY2 + THRESHOLD_WINDOW))
+             - {
+ 109          //        return 2;
+ 110          //    } else if ((val >= THRESHOLD_KEY3 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY3 + THRESHOLD_WINDOW))
+             - {
+ 111          //        return 3;
+C51 COMPILER V9.60.0.0   ADC_KEY                                                           01/09/2026 11:04:26 PAGE 3   
+
+ 112          //    } else if ((val >= THRESHOLD_KEY4 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY4 + THRESHOLD_WINDOW))
+             - {
+ 113          //        return 4;
+ 114          //    } else if ((val >= THRESHOLD_KEY5 - THRESHOLD_WINDOW) && (val <= THRESHOLD_KEY5 + THRESHOLD_WINDOW))
+             - {
+ 115          //        return 5;
+ 116          //    }
+ 117          
+ 118          //    return -1;  // 无有效按键
+ 119          //}
+ 120          //static uint8_t s_StableKeyDetectCount = 0;
+ 121          //static int s_LastDetectedKey = -1;
+ 122          //#define ADC_STABLE_COUNT    3     // 3次稳定（3*10ms=30ms防抖）
+ 123          
+ 124          //int GetStableAdcDetectedKey(void) {
+ 125          //    int current_key = GetAdcDetectedKey();
+ 126          
+ 127          //    // 优化1：无有效ADC数据 或 当前无键 → 重置所有计数
+ 128          //    if (!g_adc_data_valid || current_key == -1) {
+ 129          //        s_StableKeyDetectCount = 0;
+ 130          //        s_LastDetectedKey = -1;
+ 131          //        return -1;
+ 132          //    }
+ 133          
+ 134          //    // 优化2：稳定计数逻辑（仅连续3次同一按键才返回）
+ 135          //    if (current_key == s_LastDetectedKey) {
+ 136          //        s_StableKeyDetectCount++;
+ 137          //        if (s_StableKeyDetectCount >= ADC_STABLE_COUNT) {
+ 138          //            return current_key; // 稳定3次，返回有效按键
+ 139          //        }
+ 140          //    } else {
+ 141          //        // 按键变化，重置计数
+ 142          //        s_StableKeyDetectCount = 1;  // 优化：从1开始，而非0
+ 143          //        s_LastDetectedKey = current_key;
+ 144          //    }
+ 145          
+ 146          //    return -1;  // 未达到稳定条件
+ 147          //}
+ 148          /*
+ 149          *********************************************************************************************************
+ 150          *   函 数 名: IsKeyDownX
+ 151          *   功能说明: 判断第i个键是否当前被按下
+ 152          *   形    参: 无
+ 153          *   返 回 值: 1=按下，0=未按下
+ 154          *********************************************************************************************************
+ 155          */
+ 156          static uint8_t IsKeyDown0(void) {return  (GetStableAdcDetectedKey() == 0) ? 1 : 0; }
+ 157          static uint8_t IsKeyDown1(void) { return (GetStableAdcDetectedKey() == 1) ? 1 : 0; }
+ 158          static uint8_t IsKeyDown2(void) { return (GetStableAdcDetectedKey() == 2) ? 1 : 0; }
+ 159          static uint8_t IsKeyDown3(void) { return (GetStableAdcDetectedKey() == 3) ? 1 : 0; }
+ 160          static uint8_t IsKeyDown4(void) { return (GetStableAdcDetectedKey() == 4) ? 1 : 0; }
+ 161          static uint8_t IsKeyDown5(void) { return (GetStableAdcDetectedKey() == 5) ? 1 : 0; }
+ 162          
+ 163          /*
+ 164          *********************************************************************************************************
+ 165          *   函 数 名: Bsp_InitKey
+ 166          *   功能说明: 初始化按键模块
+ 167          *********************************************************************************************************
+ 168          */
+ 169          void Bsp_InitKey(void) {
+ 170   1          bsp_InitKeyVar();
+ 171   1          // 不需要初始化GPIO，ADC由其他模块管理
+C51 COMPILER V9.60.0.0   ADC_KEY                                                           01/09/2026 11:04:26 PAGE 4   
+
+ 172   1      }
+ 173          
+ 174          /*
+ 175          *********************************************************************************************************
+ 176          *   函 数 名: bsp_PutKey
+ 177          *   功能说明: 将键值压入FIFO
+ 178          */
+ 179          void bsp_PutKey(uint8_t _KeyCode) {
+ 180   1          s_tKey.Buf[s_tKey.Write] = _KeyCode;
+ 181   1          if (++s_tKey.Write >= KEY_FIFO_SIZE) {
+ 182   2              s_tKey.Write = 0;
+ 183   2          }
+ 184   1      }
+ 185          
+ 186          /*
+ 187          *********************************************************************************************************
+ 188          *   函 数 名: bsp_GetKey
+ 189          *   功能说明: 从FIFO读取键值
+ 190          */
+ 191          uint8_t bsp_GetKey(void) {
+ 192   1          uint8_t ret;
+ 193   1          if (s_tKey.Read == s_tKey.Write) return KEY_NONE;
+ 194   1          ret = s_tKey.Buf[s_tKey.Read];
+ 195   1          if (++s_tKey.Read >= KEY_FIFO_SIZE) s_tKey.Read = 0;
+ 196   1          return ret;
+ 197   1      }
+ 198          
+ 199          /*
+ 200          *********************************************************************************************************
+ 201          *   函 数 名: bsp_GetKeyState
+ 202          *   功能说明: 获取某键当前状态
+ 203          */
+ 204          uint8_t bsp_GetKeyState(KEY_ID_E _ucKeyID) {
+ 205   1          if (_ucKeyID < KEY_COUNT) {
+ 206   2              return s_tBtn[_ucKeyID].State;
+ 207   2          }
+ 208   1          return 0;
+ 209   1      }
+ 210          
+ 211          /*
+ 212          *********************************************************************************************************
+ 213          *   函 数 名: bsp_SetKeyParam
+ 214          *   功能说明: 设置长按时间和连发速度
+ 215          */
+ 216          void bsp_SetKeyParam(uint8_t _ucKeyID, uint16_t _LongTime, uint8_t _RepeatSpeed) {
+ 217   1          if (_ucKeyID < KEY_COUNT) {
+ 218   2              s_tBtn[_ucKeyID].LongTime = _LongTime;
+ 219   2              s_tBtn[_ucKeyID].RepeatSpeed = _RepeatSpeed;
+ 220   2              s_tBtn[_ucKeyID].RepeatCount = 0;
+ 221   2          }
+ 222   1      }
+ 223          
+ 224          /*
+ 225          *********************************************************************************************************
+ 226          *   函 数 名: bsp_ClearKey
+ 227          *   功能说明: 清空FIFO
+ 228          */
+ 229          void bsp_ClearKey(void) {
+ 230   1          s_tKey.Read = s_tKey.Write;
+ 231   1      }
+ 232          
+ 233          /*
+C51 COMPILER V9.60.0.0   ADC_KEY                                                           01/09/2026 11:04:26 PAGE 5   
+
+ 234          *********************************************************************************************************
+ 235          *   函 数 名: bsp_InitKeyVar
+ 236          *   功能说明: 初始化所有按键变量
+ 237          */
+ 238          static void bsp_InitKeyVar(void) {
+ 239   1          uint8_t i;
+ 240   1      
+ 241   1          s_tKey.Read = 0;
+ 242   1          s_tKey.Write = 0;
+ 243   1      
+ 244   1          for (i = 0; i < KEY_COUNT; i++) {
+ 245   2              s_tBtn[i].LongTime = KEY_LONG_TIME;
+ 246   2              s_tBtn[i].Count = KEY_FILTER_TIME / 2;
+ 247   2              s_tBtn[i].State = 0;
+ 248   2              s_tBtn[i].RepeatSpeed = 0;
+ 249   2              s_tBtn[i].RepeatCount = 0;
+ 250   2          }
+ 251   1      
+ 252   1          /* 自定义参数示例 */
+ 253   1          s_tBtn[0].RepeatSpeed = 50;  // 每100ms连发
+ 254   1          s_tBtn[1].RepeatSpeed = 50;
+ 255   1      
+ 256   1          /* 绑定检测函数 */
+ 257   1          s_tBtn[0].IsKeyDownFunc = IsKeyDown0;
+ 258   1          s_tBtn[1].IsKeyDownFunc = IsKeyDown1;
+ 259   1          s_tBtn[2].IsKeyDownFunc = IsKeyDown2;
+ 260   1          s_tBtn[3].IsKeyDownFunc = IsKeyDown3;
+ 261   1          s_tBtn[4].IsKeyDownFunc = IsKeyDown4;
+ 262   1          s_tBtn[5].IsKeyDownFunc = IsKeyDown5;
+ 263   1      }
+ 264          
+ 265          /*
+ 266          *********************************************************************************************************
+ 267          *   函 数 名: bsp_DetectKey
+ 268          *   功能说明: 检测单个按键状态（带去抖、长按、连发）
+ 269          *   修改说明: 使用标准递增/递减去抖，避免突变
+ 270          */
+ 271          static void bsp_DetectKey(uint8_t i) {
+ 272   1          KEY_T *pBtn = &s_tBtn[i];
+ 273   1          uint8_t press = pBtn->IsKeyDownFunc();
+ 274   1      
+ 275   1          if (press) {
+ 276   2              if (pBtn->Count < KEY_FILTER_TIME) {
+ 277   3                  pBtn->Count++;  // 逐步增加，直到达到阈值
+ 278   3              }
+ 279   2      
+ 280   2              if (pBtn->Count == KEY_FILTER_TIME) {
+ 281   3                  // 首次确认按下
+ 282   3                  if (pBtn->State == 0) {
+ 283   4                      pBtn->State = 1;
+ 284   4                      pBtn->LongCount = 0;
+ 285   4                      pBtn->RepeatCount = 0;
+ 286   4                      bsp_PutKey((uint8_t)(3 * i + 1));  // KEY_X_DOWN
+ 287   4                  }
+ 288   3      
+ 289   3                  // 长按处理
+ 290   3                  if (pBtn->LongTime > 0) {
+ 291   4                      if (++pBtn->LongCount >= pBtn->LongTime) {
+ 292   5                          pBtn->LongCount = pBtn->LongTime;  // 防溢出
+ 293   5                          // 触发长按事件（只发一次）
+ 294   5                          if ((pBtn->RepeatSpeed == 0) || 
+ 295   5                              (pBtn->RepeatCount == 0)) {  // 避免重复发送 LONG
+C51 COMPILER V9.60.0.0   ADC_KEY                                                           01/09/2026 11:04:26 PAGE 6   
+
+ 296   6                              bsp_PutKey((uint8_t)(3 * i + 3));  // KEY_X_LONG
+ 297   6                          }
+ 298   5                      }
+ 299   4      
+ 300   4                      // 连发处理
+ 301   4                      if (pBtn->RepeatSpeed > 0) {
+ 302   5                          if (++pBtn->RepeatCount >= pBtn->RepeatSpeed) {
+ 303   6                              pBtn->RepeatCount = 0;
+ 304   6                              bsp_PutKey((uint8_t)(3 * i + 2));  // 连发 DOWN
+ 305   6                          }
+ 306   5                      }
+ 307   4                  }
+ 308   3              }
+ 309   2          } else {
+ 310   2              if (pBtn->Count > 0) {
+ 311   3                  pBtn->Count--;  // 逐步减少
+ 312   3              }
+ 313   2      
+ 314   2              if (pBtn->Count == 0) {
+ 315   3                  if (pBtn->State == 1) {
+ 316   4                      pBtn->State = 0;
+ 317   4                      bsp_PutKey((uint8_t)(3 * i + 2));  // KEY_X_UP
+ 318   4                  }
+ 319   3                  pBtn->LongCount = 0;
+ 320   3                  pBtn->RepeatCount = 0;
+ 321   3              }
+ 322   2          }
+ 323   1      }
+ 324          
+ 325          /*
+ 326          *********************************************************************************************************
+ 327          *   函 数 名: bsp_KeyScan
+ 328          *   功能说明: 扫描所有按键（主循环每10ms调用一次）
+ 329          */
+ 330          void bsp_KeyScan(void) {
+ 331   1          uint8_t i;
+ 332   1          for ( i = 0; i < KEY_COUNT; i++) {
+ 333   2              bsp_DetectKey(i);
+ 334   2          }
+ 335   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1094    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     81       5
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

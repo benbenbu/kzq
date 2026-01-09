@@ -1,7 +1,7 @@
 
 
 #include "modbus.h"
-
+#include "uart.h"
 
 
 // Modbus相关定义

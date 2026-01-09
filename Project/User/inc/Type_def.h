@@ -36,11 +36,33 @@ typedef signed long     i32t;     ///< range: -2'147'483'648 .. +2'147'483'647
                                       
 typedef float           ft;       ///< range: +-1.18E-38 .. +-3.39E+38
 typedef double          dt;       ///< range:            .. +-1.79E+308
-
+typedef unsigned char bool;
 typedef enum{
   FALSE     = 0,
   TRUE      = 1
 }bt;
+
+
+/**
+ * @brief 日期结构体
+ */
+typedef struct {
+
+    uint8_t  year;  
+    uint8_t  month;  
+    uint8_t  day;  	
+
+} Date_Struct;
+/**
+ * @brief 时间结构体
+ */
+typedef struct {
+    uint8_t  hour;  
+    uint8_t  minute;  
+    uint8_t  second;  	
+
+} Time_Struct;
+
 
 
 //===================================================

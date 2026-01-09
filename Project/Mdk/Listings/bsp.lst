@@ -1,212 +1,222 @@
-C51 COMPILER V9.60.0.0   BSP                                                               12/11/2025 10:35:24 PAGE 1   
+C51 COMPILER V9.60.0.0   BSP                                                               01/09/2026 10:30:24 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE BSP
 OBJECT MODULE PLACED IN .\Objects\bsp.obj
-COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\src\bsp.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(..\Driver\inc;
-                    -..\Mdk;..\User\inc;..\Modbus;..\Driver\font) DEBUG OBJECTEXTEND PRINT(.\Listings\bsp.lst) TABS(2) OBJECT(.\Objects\bsp.o
-                    -bj)
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\Driver\bsp\src\bsp.c LARGE OMF2 OPTIMIZE(5,SIZE) BROWSE NOINTPROMOTE 
+                    -INCDIR(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings\bsp.ls
+                    -t) TABS(2) OBJECT(.\Objects\bsp.obj)
 
 line level    source
 
-   1          #include "bsp.h"
-   2          
-   3          
-   4          
-   5          
-   6          
+   1          
+   2          #include "config.h"
+   3          #include "bsp.h"
+   4          #include "spi.h"
+   5          #include "i2c.h"
+   6          #include "time.h"
    7          
-   8          
+   8          //函数声明
    9          
-  10          
-  11          
-  12          
-  13          
-  14          
+  10          void ExternalClock_Init(void);
+  11          void Port_Init();
+  12          void Watchdog_Disable(void);
+  13          void ADC0_Init(void);
+  14          void Sys_Reset(void);
   15          
   16          
   17          
   18          
-  19          // 系统时钟初始化
-  20          void ExternalClock_Init(void)
-  21          {
-  22   1          char SFRPAGE_SAVE = SFRPAGE; // 保存当前SFR页
-  23   1          SFRPAGE = CONFIG_PAGE;       // 切换到配置页 (0x01)
-  24   1      
-  25   1          // 关键：22.1184MHz 晶振标准配置 (OSCXCN = 0x67)
-  26   1          OSCXCN = 0x67;               // 0b01100111: 
-  27   1                                       //   EXTEN=1, XTAL=1, OSCEN=1, XFCN=1
-  28   1          while (!(OSCXCN & 0x80));    // 等待外部振荡器稳定 (OSCSTB=1)
-  29   1      
-  30   1          CLKSEL = 0x01;               // 选择外部时钟源 (CLKSEL.0=1)
+  19          void  bsp_int()
+  20          {
+  21   1         ExternalClock_Init();
+  22   1         Sys_Reset();
+  23   1         Watchdog_Disable();
+  24   1         SPI_Init();  
+  25   1         Port_Init();
+  26   1         ADC0_Init();
+  27   1         I2C_Init();  
+  28   1         Timer0_Init();//系统定时1ms
+  29   1         Timer2_Init();//adc用10ms定时器  
+  30   1      //   Timer3_Init();//iic用25ms定时器
   31   1      
-  32   1          SFRPAGE = SFRPAGE_SAVE;      // 恢复SFR页
+  32   1      
   33   1      }
   34          
-  35          // 端口初始化
-  36          void Port_Init() {
-  37   1        
-  38   1      
-  39   1          char SFRPAGE_SAVE = SFRPAGE; // Save Current SFR page
-  40   1      
-  41   1          SFRPAGE = CONFIG_PAGE;
-  42   1      
-  43   1          // 2. 配置 P1 口 (控制信号)
-  44   1          //    P1.0 (RST), P1.1 (CD), P1.2 (CS0), P1.4   (WR) → P1.7   (LVC245 OE)       推挽输出
-  45   1          P1MDOUT = 0xff;  // 0x16 = 0b00010110 → 设置位 0,1,2,4 为 1 (推挽输出)
-  46   1          
-  47   1          // 3. 配置 P2 口 (数据总线 + RD 信号)
-  48   1          P2MDOUT = 0xFF;   // 0xFF = 0b11111111 → 所有位推挽输出
-  49   1        
-  50   1      
-  51   1      //    XBR0 = 0x06;  //  使能串口0 分配到IO口P0.0 P0.1      04    //    06
-  52   1      //    XBR2 = 0x40;  
-  53   1        
-C51 COMPILER V9.60.0.0   BSP                                                               12/11/2025 10:35:24 PAGE 2   
+  35          
+  36          // 系统时钟初始化
+  37          void ExternalClock_Init(void)
+  38          {
+  39   1          char SFRPAGE_SAVE = SFRPAGE; // 保存当前SFR页
+  40   1          SFRPAGE = CONFIG_PAGE;       // 切换到配置页 (0x01)
+  41   1      
+  42   1          // 关键：22.1184MHz 晶振标准配置 (OSCXCN = 0x67)
+  43   1          OSCXCN = 0x67;               // 0b01100111: 
+  44   1                                       //   EXTEN=1, XTAL=1, OSCEN=1, XFCN=1
+  45   1          while (!(OSCXCN & 0x80));    // 等待外部振荡器稳定 (OSCSTB=1)
+  46   1      
+  47   1          CLKSEL = 0x01;               // 选择外部时钟源 (CLKSEL.0=1)
+  48   1      
+  49   1          SFRPAGE = SFRPAGE_SAVE;      // 恢复SFR页
+  50   1      }
+  51          
+  52          void Sys_Reset(void)
+  53          {
+C51 COMPILER V9.60.0.0   BSP                                                               01/09/2026 10:30:24 PAGE 2   
 
-  54   1            XBR0 = 0x00;  // 禁止所有数字外设引脚
-  55   1          XBR1 = 0x00;  // 禁止所有数字外设引脚
-  56   1          XBR2 = 0x40;  // 使能交叉开关，但不分配任何外设功能
-  57   1          P1=0X00;
-  58   1          P2 = 0x00;  // 清空数据总线
+  54   1          char SFRPAGE_SAVE = SFRPAGE; // 保存当前SFR页
+  55   1          SFRPAGE = LEGACY_PAGE;       // 切换到配置页 (0x00)
+  56   1      
+  57   1          RSTSRC=0x02;//选择 VDD 监视器为复位源
+  58   1      
   59   1          SFRPAGE = SFRPAGE_SAVE;      // 恢复SFR页
   60   1      }
   61          
-  62          // 看门狗配置函数 - 设置溢出时间
-  63          void Watchdog_Config(unsigned char timeout_setting)
-  64          {
-  65   1          // 设置看门狗超时间隔
-  66   1          // 超时间隔 = 4^(3+WDTCN[2:0]) × TSYSCLK
-  67   1          // WDTCN[2:0]的值范围是0-7
-  68   1          
-  69   1          // 直接写入超时间隔设置
-  70   1          // 注意：写入此值不会立即生效，需要喂狗命令才能生效
-  71   1          WDTCN = timeout_setting & 0x07;  // 只使用低3位设置超时间隔
-  72   1      }
-  73          
-  74          // 看门狗使能函数 - 使能并配置看门狗
-  75          void Watchdog_Enable(unsigned char timeout_setting)
-  76          {
-  77   1          // 先配置超时间隔
-  78   1          Watchdog_Config(timeout_setting);
-  79   1          
-  80   1          // 然后使能看门狗（喂狗操作）
-  81   1          WDTCN = 0xA5;  // 使能并重装载WDT
-  82   1      }
-  83          
-  84          // 看门狗禁用函数
-  85          void Watchdog_Disable(void)
-  86          {
-  87   1          EA=0;
-  88   1          // 禁用看门狗定时器
-  89   1          // 需要两步序列：0xDE + 0xAD，在4个系统周期内完成
-  90   1          WDTCN = 0xDE;  // 第一步
-  91   1          WDTCN = 0xAD;  // 第二步（必须在4个系统周期内）
-  92   1          EA=1;
+  62          
+  63          
+  64          
+  65          
+  66          // 端口初始化
+  67          void Port_Init() {
+  68   1        char SFRPAGE_SAVE = SFRPAGE; // 保存当前SFR页（C8051F多页寄存器机制）
+  69   1          SFRPAGE = CONFIG_PAGE;       // 切换到配置页（端口/交叉开关配置必须此页）
+  70   1      
+  71   1          // 1. 配置引脚输出方式（PnMDOUT）
+  72   1          P0MDOUT |= 0x95;  // P0.2(MOSI)、P0.4(SCK) 推挽输出,END输出，TX输出
+  73   1      
+  74   1          P1MDOUT = 0xff;  // P1口控制信号（RST/CD/CS0/WR/OE）=推挽（强驱动）
+  75   1          P2MDOUT = 0xFF;  // P2口数据总线=推挽（数据传输需强驱动） 
+  76   1          P3MDOUT |= 0xFF;   // 
+  77   1          P4MDOUT |= 0xC0;   //
+  78   1          P4=0X3F;//P46，P47输出，其他输入
+  79   1          // 2. 配置交叉开关功能映射（XBR0/XBR1）
+  80   1          XBR0 = 0x07;      // 使能UART0(P0.0/P0.1)、SPI(P0.2/P0.3/P0.4)、IIC(P0.5/P0.6)
+  81   1          XBR1 = 0x00;      // 无额外外设功能需要映射
+  82   1      
+  83   1          // 3. 最后使能交叉开关（XBARE=1）
+  84   1          XBR2 = 0x40;      // 
+  85   1      
+  86   1          // 4. 配置端口初始电平（避免上电后引脚电平不确定）
+  87   1          P0 |= 0x08;        // 设置P0.3 Miso为输入
+  88   1          P1 = 0X00;        // 控制信号初始低电平（可根据硬件需求调整，如RST需高电平则改为0xFF）
+  89   1          P2 = 0x00;        // 数据总线初始低电平（清空总线，避免误读）
+  90   1          P3 = 0X0f;
+  91   1      
+  92   1          SFRPAGE = SFRPAGE_SAVE;      // 恢复原SFR页
   93   1      }
   94          
-  95          // 看门狗锁定函数 - 永久禁用看门狗
-  96          void Watchdog_Lock(void)
+  95          // 看门狗配置函数 - 设置溢出时间
+  96          void Watchdog_Config(unsigned char timeout_setting)
   97          {
-  98   1          // 锁定看门狗禁用功能，永久禁用
-  99   1          // 一旦执行此操作，无法再启用看门狗
- 100   1          WDTCN = 0xFF;  // 锁定禁用功能
- 101   1      }
- 102          
- 103          // 喂狗函数 - 重置看门狗计数器
- 104          void Watchdog_Feed(void)
- 105          {
- 106   1          // 喂狗操作，重置看门狗计数器
- 107   1          // 命令：0xA5 - 使能并重装载WDT
- 108   1          WDTCN = 0xA5;  // 使能并重装载WDT（喂狗）
- 109   1      }
- 110          
- 111          
- 112          
- 113          
- 114          
- 115          
-C51 COMPILER V9.60.0.0   BSP                                                               12/11/2025 10:35:24 PAGE 3   
+  98   1          // 设置看门狗超时间隔
+  99   1          // 超时间隔 = 4^(3+WDTCN[2:0]) × TSYSCLK
+ 100   1          // WDTCN[2:0]的值范围是0-7
+ 101   1          
+ 102   1          // 直接写入超时间隔设置
+ 103   1          // 注意：写入此值不会立即生效，需要喂狗命令才能生效
+ 104   1        
+ 105   1        
+ 106   1          WDTCN = timeout_setting & 0x07;  // 只使用低3位设置超时间隔
+ 107   1      }
+ 108          
+ 109          // 看门狗使能函数 - 使能并配置看门狗
+ 110          void Watchdog_Enable(unsigned char timeout_setting)
+ 111          {
+ 112   1          // 先配置超时间隔
+ 113   1          Watchdog_Config(timeout_setting);
+ 114   1          
+ 115   1          // 然后使能看门狗（喂狗操作）
+C51 COMPILER V9.60.0.0   BSP                                                               01/09/2026 10:30:24 PAGE 3   
 
- 116          
- 117          
+ 116   1          WDTCN = 0xA5;  // 使能并重装载WDT
+ 117   1      }
  118          
- 119          // GPIO配置函数
- 120          void GPIO_Config(unsigned char port, unsigned char pin, unsigned char mode) {
- 121   1          switch(port) {
- 122   2              case 0:
- 123   2                  if(mode == 1) P0MDOUT |= (1 << pin); // 输出
- 124   2                  else P0MDOUT &= ~(1 << pin);         // 输入
- 125   2                  break;
- 126   2              case 1:
- 127   2                  if(mode == 1) P1MDOUT |= (1 << pin);
- 128   2                  else P1MDOUT &= ~(1 << pin);
- 129   2                  break;
- 130   2              case 2:
- 131   2                  if(mode == 1) P2MDOUT |= (1 << pin);
- 132   2                  else P2MDOUT &= ~(1 << pin);
- 133   2                  break;
- 134   2              case 3:
- 135   2                  if(mode == 1) P3MDOUT |= (1 << pin);
- 136   2                  else P3MDOUT &= ~(1 << pin);
- 137   2                  break;
- 138   2          }
- 139   1      }
- 140          
- 141          // GPIO输出函数
- 142          void GPIO_Write(unsigned char port, unsigned char pin, unsigned char value) {
- 143   1          switch(port) {
- 144   2              case 0:
- 145   2                  if(value) P0 |= (1 << pin);
- 146   2                  else P0 &= ~(1 << pin);
- 147   2                  break;
- 148   2              case 1:
- 149   2                  if(value) P1 |= (1 << pin);
- 150   2                  else P1 &= ~(1 << pin);
- 151   2                  break;
- 152   2              case 2:
- 153   2                  if(value) P2 |= (1 << pin);
- 154   2                  else P2 &= ~(1 << pin);
- 155   2                  break;
- 156   2              case 3:
- 157   2                  if(value) P3 |= (1 << pin);
- 158   2                  else P3 &= ~(1 << pin);
- 159   2                  break;
- 160   2          }
- 161   1      }
- 162          
- 163          // GPIO读取函数
- 164          unsigned char GPIO_Read(unsigned char port, unsigned char pin) {
- 165   1          switch(port) {
- 166   2              case 0: return (P0 & (1 << pin)) ? 1 : 0;
- 167   2              case 1: return (P1 & (1 << pin)) ? 1 : 0;
- 168   2              case 2: return (P2 & (1 << pin)) ? 1 : 0;
- 169   2              case 3: return (P3 & (1 << pin)) ? 1 : 0;
- 170   2              default: return 0;
- 171   2          }
- 172   1      }
- 173          
+ 119          // 看门狗禁用函数
+ 120          void Watchdog_Disable(void)
+ 121          {
+ 122   1      //    uint8_t i;
+ 123   1          EA=0;
+ 124   1          // 禁用看门狗定时器
+ 125   1          // 需要两步序列：0xDE + 0xAD，在4个系统周期内完成
+ 126   1          WDTCN = 0xDE;  // 第一步
+ 127   1          WDTCN = 0xAD;  // 第二步（必须在4个系统周期内）
+ 128   1      //    EA=1;
+ 129   1      }
+ 130          
+ 131          // 看门狗锁定函数 - 永久禁用看门狗
+ 132          void Watchdog_Lock(void)
+ 133          {
+ 134   1          // 锁定看门狗禁用功能，永久禁用
+ 135   1          // 一旦执行此操作，无法再启用看门狗
+ 136   1          WDTCN = 0xFF;  // 锁定禁用功能
+ 137   1      }
+ 138          
+ 139          // 喂狗函数 - 重置看门狗计数器
+ 140          void Watchdog_Feed(void)
+ 141          {
+ 142   1          // 喂狗操作，重置看门狗计数器
+ 143   1          // 命令：0xA5 - 使能并重装载WDT
+ 144   1          WDTCN = 0xA5;  // 使能并重装载WDT（喂狗）
+ 145   1      }
+ 146          
+ 147          
+ 148          
+ 149          
+ 150          void ADC0_Init(void) {
+ 151   1        
+ 152   1          char SFRPAGE_SAVE = SFRPAGE; // Save Current SFR page
+ 153   1      
+ 154   1          SFRPAGE = ADC0_PAGE;
+ 155   1        
+ 156   1          AMX0CF = 0X00;   //单独输入
+ 157   1          AMX0SL = 0x00;           // 选择 AIN0.0 ADC0CF
+ 158   1        
+ 159   1        
+ 160   1          REF0CN = 0x03;           // 参考电压来自vref引脚2.4v,使用内部基准电压，启用温度传感器
+ 161   1          ADC0CF = 0x28;           // SAR Clock1.8m   1增益
+ 162   1      
+ 163   1          // 配置 ADC0 启动方式：Timer2 溢出触发
+ 164   1          ADC0CN = 0x8c;           // AD0EN=1
+ 165   1                                   // AD0CM=01 → Timer2 溢出触发
+ 166   1                                   // 默认右对齐，AD0TM=0（连续跟踪）
+ 167   1      
+ 168   1          // 使能 ADC 中断（用于读取结果）
+ 169   1          EIE2   |= 0x02;          // 使能 ADC0 中断
+ 170   1      
+ 171   1          EIP2|=0X02;//高优先级
+ 172   1          SFRPAGE = SFRPAGE_SAVE;      // 恢复SFR页 
+ 173   1      }
  174          
  175          
- 176          void  bsp_int()
- 177          {
-C51 COMPILER V9.60.0.0   BSP                                                               12/11/2025 10:35:24 PAGE 4   
+ 176          
+ 177          
+C51 COMPILER V9.60.0.0   BSP                                                               01/09/2026 10:30:24 PAGE 4   
 
- 178   1        ExternalClock_Init();
- 179   1         Watchdog_Disable();
- 180   1        Port_Init();
- 181   1      
- 182   1      }
+ 178          
+ 179          
+ 180          
+ 181          
+ 182          
+ 183          
+ 184          
+ 185          
+ 186          
+ 187          
+ 188          
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =    525    ----
+   CODE SIZE        =    160    ----
    CONSTANT SIZE    =   ----    ----
    XDATA SIZE       =   ----    ----
    PDATA SIZE       =   ----    ----
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----
    BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
 END OF MODULE INFORMATION.
 
 

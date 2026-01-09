@@ -1,0 +1,4386 @@
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE MENU
+OBJECT MODULE PLACED IN .\Objects\menu.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\User\src\menu.c LARGE OMF2 OPTIMIZE(5,SIZE) BROWSE NOINTPROMOTE INCDI
+                    -R(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings\menu.lst) T
+                    -ABS(2) OBJECT(.\Objects\menu.obj)
+
+line level    source
+
+   1          
+   2          #include "config.h"
+   3          #include "menu.h"
+   4          #include "time.h "
+   5          #include "adc_key.h"
+   6          #include "lcd.h"
+   7          #include "data_save.h"
+   8          #include "data_deal.h"
+   9          #include "font_date.h"
+  10          #include "HT7036.h"
+  11          #include "fm31256.h"
+  12          #include <string.h>
+  13          /**********±äÁ¿¶¨Òå**********/
+  14          
+  15          MenuState menu_state;       // µ±Ç°²Ëµ¥×´Ì¬
+  16          uint32_t menu_current_time; // ²Ëµ¥µ±Ç°Ê±¼ä
+  17          uint32_t menu_last_time;    // ²Ëµ¥µ±Ç°Ê±¼ä
+  18          // ·´ÏÔ¹â±ê×ø±ê
+  19          uint8_t cur_row = 0; // µ±Ç°ÐÐÎ»ÖÃ
+  20          uint8_t cur_col = 0; // µ±Ç°ÁÐÎ»ÖÃ
+  21          char item_id;        // ²Ëµ¥ÏîÑ¡Ïî
+  22          char item1;          // Ö÷²Ëµ¥Ïî
+  23          char item2;          // ²ÎÊý²Ëµ¥Ïî
+  24          char item3;          // ±£»¤²Ëµ¥Ïî
+  25          char state;          // ²Ëµ¥×´Ì¬
+  26          char edit_col;       // ¹â±êÎ»ÖÃ
+  27          
+  28          void menu_init()
+  29          {
+  30   1        menu_state.id = METER_DISP;
+  31   1        menu_state.last_id = METER_DISP;
+  32   1        menu_state.switch_temp_flag = 1;
+  33   1        menu_current_time = Get_SystemTime();
+  34   1        menu_last_time = menu_current_time;
+  35   1        item_id = 1;
+  36   1        item1 = 1;
+  37   1        item2 = 1;
+  38   1        item3 = 1;
+  39   1        state = 0;
+  40   1        edit_col = 0;
+  41   1      }
+  42          
+  43          // ²Ëµ¥ÏÔÊ¾º¯Êý
+  44          void menu_disp()
+  45          {
+  46   1      
+  47   1        uint8_t key_val;
+  48   1        menu_current_time = Get_SystemTime();
+  49   1      
+  50   1        // ========== µÚ¶þ²½£º´¦Àí½çÃæÇÐ»»/°´¼ü±ê¼Ç£¨Ô­ÓÐÂß¼­±£Áô£© ==========
+  51   1        if (menu_state.switch_temp_flag == 1)
+  52   1        {
+  53   2          // ÇÐ»»±ê¼ÇÉúÐ§£ºÉèÖÃË¢ÐÂ±ê¼Ç£¬ÖØÖÃÁÙÊ±±ê¼Ç
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 2   
+
+  54   2          menu_state.refresh_flag = 1;
+  55   2          menu_state.switch_temp_flag = 0;
+  56   2          key_val = KEY_NONE; // ÇÐ»»Ê±ÎÞÕæÊµ°´¼ü
+  57   2          // ÇÐ»»Ê±¸üÐÂ×îºó²Ù×÷Ê±¼ä£¨±ÜÃâ¸ÕÇÐ»»¾Í´¥·¢³¬Ê±£©
+  58   2          menu_last_time = menu_current_time;
+  59   2        }
+  60   1        else
+  61   1        {
+  62   2          // ÎÞÇÐ»»Ê±£¬Õý³£¶ÁÈ¡°´¼ü
+  63   2          key_val = bsp_GetKey();
+  64   2          // ÓÐÕæÊµ°´¼üÊ±£¬±ê¼ÇË¢ÐÂ
+  65   2          menu_state.refresh_flag = (key_val != KEY_NONE) ? 1 : 0;
+  66   2        }
+  67   1      
+  68   1        // ========== µÚÈý²½£ºÕûºÏ3·ÖÖÓÎÞ°´¼ü×Ô¶¯·µ»ØÂß¼­ ==========
+  69   1        if (key_val != KEY_NONE)
+  70   1        {
+  71   2          // ÓÐ°´¼ü£º¸üÐÂ×îºó²Ù×÷Ê±¼ä
+  72   2          menu_last_time = menu_current_time;
+  73   2        }
+  74   1        else
+  75   1        {
+  76   2          // ÎÞ°´¼ü£ºÅÐ¶ÏÊÇ·ñ³¬Ê±·µ»Ø
+  77   2          if (menu_state.id != METER_DISP)
+  78   2          { // ·Ç¼ÆÁ¿½çÃæ
+  79   3            // ¼ÆËãÎÞ°´¼üÊ±³¤£¨uint32_t±ÜÃâÒç³ö£©
+  80   3            if ((uint32_t)(menu_current_time - menu_last_time) > 180000L)
+  81   3            {
+  82   4              // ³¬Ê±£ºÇ¿ÖÆÇÐ»Ø¼ÆÁ¿½çÃæ
+  83   4              menu_state.id = METER_DISP;
+  84   4              menu_state.switch_temp_flag = 1;    // ±ê¼ÇÇÐ»»£¬±£Ö¤·µ»ØºóË¢ÐÂ
+  85   4              menu_last_time = menu_current_time; // ÖØÖÃ³¬Ê±Ê±¼ä´Á
+  86   4              LCD_Clear();                        // ÇåÆÁ£¬±ÜÃâ½çÃæ²ÐÁô
+  87   4              item_id = 1;
+  88   4              item1 = 1;
+  89   4              item2 = 1;
+  90   4              item3 = 1;
+  91   4              state = 0;
+  92   4              
+  93   4            }
+  94   3          }
+  95   2          else
+  96   2          {
+  97   3            // ¼ÆÁ¿½çÃæ£ºÖØÖÃ³¬Ê±Ê±¼ä£¨±ÜÃâ¼ÆÁ¿½çÃæ×ÔÉí´¥·¢³¬Ê±£©
+  98   3            menu_last_time = menu_current_time;
+  99   3          }
+ 100   2        }
+ 101   1      
+ 102   1        // ========== µÚËÄ²½£º´¦Àí¶¨Ê±/Êý¾Ý¸üÐÂË¢ÐÂ£¨¼ÆÁ¿½çÃæ×¨Êô£¬Ô­ÓÐÂß¼­±£Áô£© ==========
+ 103   1        if (menu_state.id == METER_DISP)
+ 104   1        {
+ 105   2          // 1s¶¨Ê±Ë¢ÐÂ
+ 106   2          if (menu_state.timer_1s_flag == 1)
+ 107   2          {
+ 108   3            menu_state.refresh_flag = 1;
+ 109   3            menu_state.timer_1s_flag = 0;
+ 110   3          }
+ 111   2          // ¼ÆÁ¿Êý¾Ý¸üÐÂË¢ÐÂ
+ 112   2          if (menu_state.meter_data_flag == 1)
+ 113   2          {
+ 114   3            menu_state.refresh_flag = 1;
+ 115   3            menu_state.meter_data_flag = 0;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 3   
+
+ 116   3          }
+ 117   2        }
+ 118   1      
+ 119   1        if ((menu_state.refresh_flag == 1))
+ 120   1        {
+ 121   2          switch (menu_state.id)
+ 122   2          {
+ 123   3          case METER_DISP:
+ 124   3            Meter_Disp(key_val); // ¼ÆÁ¿½çÃæ
+ 125   3            break;
+ 126   3          case MAIN_MENU:
+ 127   3            Main_Menu(key_val); // Ö÷²Ëµ¥
+ 128   3            break;
+ 129   3          case SYSTEM_SETTING:
+ 130   3            System_Setting(key_val); // ÏµÍ³ÉèÖÃ
+ 131   3            break;
+ 132   3          case PARAM_SETTING:
+ 133   3            Para_Menu(key_val); // ²ÎÊýÉèÖÃ
+ 134   3            break;
+ 135   3          case ADJUST_CAP:
+ 136   3            Cap_Adjust(key_val); // µ÷ÊÔÍ¶ÇÐ
+ 137   3            break;
+ 138   3          case SAMPLING_CALIBRATION:
+ 139   3            Sampling_Adiust(key_val); // ²ÉÑùÐ£×¼
+ 140   3            break;
+ 141   3          case EVENT_LOG: // ÊÂ¼þ¼ÇÂ¼
+ 142   3            Event_Log(key_val);
+ 143   3            break;
+ 144   3          case DATA_STATISTICS: // Êý¾ÝÍ³¼Æ
+ 145   3            Data_Stat(key_val);
+ 146   3            break;
+ 147   3          case SYSTEM_PARAM: // ÏµÍ³²ÎÊý
+ 148   3            Sys_Para_Set(key_val);
+ 149   3            break;
+ 150   3          case CAP_PARAM: // µçÈÝ²ÎÊý
+ 151   3            Cap_Para_Set(key_val);
+ 152   3            break;
+ 153   3          case CTRL_PARAM: // ¿ØÖÆ²ÎÊý
+ 154   3            Control_Para_Set(key_val);
+ 155   3            break;
+ 156   3          case PROT_PARAM: // ±£»¤²ÎÊý
+ 157   3            Protect_Menu(key_val);
+ 158   3            break;
+ 159   3          case COMM_PARAM: // Í¨Ñ¶²ÎÊý
+ 160   3            Sys_Com_Para_Set(key_val);
+ 161   3            break;
+ 162   3          
+ 163   3          case STATISTIC_PARAM: // Í³¼Æ²ÎÊý   
+ 164   3           Sys_Static_Para_Set( key_val);
+ 165   3          break;
+ 166   3          case PROT_PARAM_VOL_H:
+ 167   3            Sys_Vol_Prot_Para_Set(key_val, VOL_PROT_H); // ¹ýÑ¹±£»¤
+ 168   3            break;
+ 169   3          case PROT_PARAM_VOL_L:
+ 170   3            Sys_Vol_Prot_Para_Set(key_val, VOL_PROT_L); // Ç·Ñ¹±£»¤
+ 171   3            break;
+ 172   3          case PROT_CAP1:
+ 173   3            Sys_Cap_Prot_Para_Set(key_val, 0); // Ò»Â·±£»¤
+ 174   3            break;
+ 175   3          case PROT_CAP2:
+ 176   3            Sys_Cap_Prot_Para_Set(key_val, 1); // Ò»Â·±£»¤// Ò»Â·±£»¤
+ 177   3            break;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 4   
+
+ 178   3          case PROT_CAP3:
+ 179   3            Sys_Cap_Prot_Para_Set(key_val, 2); // Ò»Â·±£»¤// Ò»Â·±£»¤
+ 180   3            break;
+ 181   3          case PROT_CAP4:
+ 182   3            Sys_Cap_Prot_Para_Set(key_val, 3); // Ò»Â·±£»¤// Ò»Â·±£»¤
+ 183   3            break;
+ 184   3      
+ 185   3          case PASSWORD:
+ 186   3            Pass_Word(key_val); // ±£»¤¿ÚÁî
+ 187   3            break;
+ 188   3      
+ 189   3          case SAMPLING:    
+ 190   3           Sampling( key_val);    
+ 191   3          break;
+ 192   3          }
+ 193   2          Low_Disp();
+ 194   2          menu_state.refresh_flag = 0;
+ 195   2          key_val = KEY_NONE; // Çå¿Õ°´¼üÖµ£¬·ÀÖ¹ÖØ¸´´¦Àí
+ 196   2        }
+ 197   1      }
+ 198          
+ 199          /***********ÏÔÊ¾¸¨Öúº¯Êý********/
+ 200          
+ 201          // ¸¨Öú£º¼ÆËã 10^n£¨n <= 9 °²È«£©
+ 202          
+ 203          static int pow10(int n)
+ 204          {
+ 205   1        static const int p10[] = {1, 10, 100, 1000, 10000, 100000};
+ 206   1        return (n >= 0 && n < 6) ? p10[n] : 0;
+ 207   1      }
+ 208          
+ 209          // 1. ´¦Àíuint8_t£¨C89±ê×¼£º±äÁ¿¼¯ÖÐ¶¨ÒåÔÚº¯Êý¿ªÍ·£©
+ 210          void adjust_digit_u8(uint8_t *value_ptr, uint8_t edit_col, int delta, uint8_t total_digits)
+ 211          {
+ 212   1      #define MAX_DIGITS_U8 3
+ 213   1        // ËùÓÐ±äÁ¿¼¯ÖÐ¶¨ÒåÔÚÖ´ÐÐÓï¾äÇ°£¨C89Ç¿ÖÆÒªÇó£©
+ 214   1        int pos_from_right;
+ 215   1        long base;
+ 216   1        uint8_t old_val;
+ 217   1        long digit;
+ 218   1        long new_val; // ÓÃlongÔÝ´æ£¬±ÜÃâ¼ÆËãÒç³ö
+ 219   1      
+ 220   1        // Ö´ÐÐÂß¼­£¨±äÁ¿¶¨ÒåºóÔÙÐ´Ö´ÐÐÓï¾ä£©
+ 221   1        if (edit_col >= total_digits || total_digits == 0 || total_digits > MAX_DIGITS_U8)
+ 222   1        {
+ 223   2          return;
+ 224   2        }
+ 225   1      
+ 226   1        pos_from_right = total_digits - 1 - edit_col;
+ 227   1        base = pow10(pos_from_right);
+ 228   1        if (base == 0)
+ 229   1        {
+ 230   2          return;
+ 231   2        }
+ 232   1      
+ 233   1        old_val = *value_ptr;
+ 234   1        digit = (old_val / base) % 10;
+ 235   1        digit = (digit + delta + 10) % 10; // Ñ­»·¼Ó¼õ£¬±ÜÃâ¸ºÊý
+ 236   1      
+ 237   1        // ÏÈ¼ÆËãÐÂÖµ£¨ÓÃlong±ÜÃâÒç³ö£©£¬ÔÙÇ¿×ª»Øuint8_t
+ 238   1        new_val = (long)old_val - ((old_val / base) % 10) * base + digit * base;
+ 239   1        *value_ptr = (uint8_t)new_val;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 5   
+
+ 240   1      }
+ 241          void adjust_digit_u81(uint8_t *value_ptr, uint8_t edit_col, int delta, uint8_t total_digits)
+ 242          {
+ 243   1        // ËùÓÐ±äÁ¿¼¯ÖÐ¶¨ÒåÔÚÖ´ÐÐÓï¾äÇ°£¨C89Ç¿ÖÆÒªÇó£©
+ 244   1        int pos_from_right;
+ 245   1        long base;
+ 246   1        uint8_t old_val;
+ 247   1        long digit;
+ 248   1        long new_val; // ÓÃlongÔÝ´æ£¬±ÜÃâ¼ÆËãÒç³ö
+ 249   1      
+ 250   1        // Ö´ÐÐÂß¼­£¨±äÁ¿¶¨ÒåºóÔÙÐ´Ö´ÐÐÓï¾ä£©
+ 251   1        if (edit_col >= total_digits || total_digits == 0 || total_digits > 3)
+ 252   1        {
+ 253   2          return;
+ 254   2        }
+ 255   1      
+ 256   1        pos_from_right = total_digits - 1 - edit_col;
+ 257   1        base = pow10(pos_from_right);
+ 258   1        if (base == 0)
+ 259   1        {
+ 260   2          return;
+ 261   2        }
+ 262   1      
+ 263   1        old_val = *value_ptr;
+ 264   1        digit = (old_val / base) % 10;
+ 265   1      
+ 266   1        // ========== ºËÐÄÐÞ¸Ä£º°ÙÎ»£¨edit_col=0£©ÌØÊâÏÞÖÆ ==========
+ 267   1        if (edit_col == 0)
+ 268   1        { // ½öÕë¶Ô°ÙÎ»£¨edit_col=0£©
+ 269   2          digit += delta;
+ 270   2          // °ÙÎ»¹æÔò£º0~1Ñ­»·£¬³¬¹ý1ÖÃ0£¬µÍÓÚ0ÖÃ1£¨¼æÈÝ¼õ²Ù×÷£©
+ 271   2          if (digit > 1)
+ 272   2          {
+ 273   3            digit = 0;
+ 274   3          }
+ 275   2          else if (digit < 0)
+ 276   2          { // ¼æÈÝ¼õdeltaµÄ³¡¾°£¨Èçdelta=-1£©
+ 277   3            digit = 1;
+ 278   3          }
+ 279   2        }
+ 280   1        else
+ 281   1        {                                    // Ê®Î»/¸öÎ»£¨edit_col=1/2£©±£ÁôÔ­ÓÐÑ­»·Âß¼­
+ 282   2          digit = (digit + delta + 10) % 10; // Ñ­»·¼Ó¼õ£¬±ÜÃâ¸ºÊý
+ 283   2        }
+ 284   1      
+ 285   1        // ÏÈ¼ÆËãÐÂÖµ£¨ÓÃlong±ÜÃâÒç³ö£©£¬ÔÙÇ¿×ª»Øuint8_t
+ 286   1        new_val = (long)old_val - ((old_val / base) % 10) * base + digit * base;
+ 287   1        *value_ptr = (uint8_t)new_val;
+ 288   1      }
+ 289          // 2. ´¦Àíuint16_t£¨Í¬ÉÏ£¬±äÁ¿¼¯ÖÐ¶¨Òå£©
+ 290          void adjust_digit_u16(uint16_t *value_ptr, uint8_t edit_col, int delta, uint8_t total_digits)
+ 291          {
+ 292   1        // ËùÓÐ±äÁ¿¼¯ÖÐ¶¨ÒåÔÚ¿ªÍ·
+ 293   1        int pos_from_right;
+ 294   1        long base;
+ 295   1        uint16_t old_val;
+ 296   1        long digit;
+ 297   1        long new_val;
+ 298   1      
+ 299   1        if (edit_col >= total_digits || total_digits == 0 || total_digits > 5)
+ 300   1        {
+ 301   2          return;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 6   
+
+ 302   2        }
+ 303   1      
+ 304   1        pos_from_right = total_digits - 1 - edit_col;
+ 305   1        base = pow10(pos_from_right);
+ 306   1        if (base == 0)
+ 307   1        {
+ 308   2          return;
+ 309   2        }
+ 310   1      
+ 311   1        old_val = *value_ptr;
+ 312   1        digit = (old_val / base) % 10;
+ 313   1        digit = (digit + delta + 10) % 10;
+ 314   1      
+ 315   1        new_val = (long)old_val - ((old_val / base) % 10) * base + digit * base;
+ 316   1        *value_ptr = (uint16_t)new_val;
+ 317   1      }
+ 318          
+ 319          // µ÷ÕûÒ»¸ö×Ö½Ú£¨0~255£©µÄÊ®Áù½øÖÆÄ³Ò»Î»
+ 320          // edit_col: 0 = ¸ßÎ»£¨×ó£©£¬1 = µÍÎ»£¨ÓÒ£©
+ 321          // delta: +1 »ò -1
+ 322          static void adjust_hex_digit(uint8_t *value, uint8_t edit_col, int delta)
+ 323          {
+ 324   1        uint8_t digit;
+ 325   1        if (edit_col > 1)
+ 326   1          return; // Ö»Ö§³Ö2Î»
+ 327   1      
+ 328   1        if (edit_col == 0)
+ 329   1        {
+ 330   2          digit = (*value >> 4) & 0x0F; // ¸ß4Î»
+ 331   2        }
+ 332   1        else
+ 333   1        {
+ 334   2          digit = *value & 0x0F; // µÍ4Î»
+ 335   2        }
+ 336   1      
+ 337   1        // Ê®Áù½øÖÆÑ­»·£º0~15£¨0~F£©
+ 338   1        digit = (digit + delta + 16) % 16;
+ 339   1      
+ 340   1        // Ð´»Ø
+ 341   1        if (edit_col == 0)
+ 342   1        {
+ 343   2          *value = (*value & 0x0F) | (digit << 4);
+ 344   2        }
+ 345   1        else
+ 346   1        {
+ 347   2          *value = (*value & 0xF0) | digit;
+ 348   2        }
+ 349   1      }
+ 350          // µçÈÝÏÔÊ¾  type  0: c1 ·ÅÏÂÃæ  1£ºc1·Å×ó±ß
+ 351          void cap_disp(uint8_t type)
+ 352          {
+ 353   1      
+ 354   1        uint8_t x = 21;
+ 355   1        uint8_t y = 60;
+ 356   1        uint8_t i;
+ 357   1        switch (g_cap_num.cap_num)
+ 358   1        {
+ 359   2        case 1:
+ 360   2          x = 111;
+ 361   2          y = 0;
+ 362   2          break;
+ 363   2      
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 7   
+
+ 364   2        case 2:
+ 365   2          x = 21;
+ 366   2          y = 180;
+ 367   2          break;
+ 368   2        case 3:
+ 369   2          x = 21;
+ 370   2          y = 90;
+ 371   2          break;
+ 372   2        case 4:
+ 373   2          x = 21;
+ 374   2          y = 60;
+ 375   2          break;
+ 376   2        }
+ 377   1      
+ 378   1        for (i = 0; i < g_cap_num.cap_num; i++)
+ 379   1        {
+ 380   2          if (g_cap[i].onf)
+ 381   2          {
+ 382   3            if (g_cap[i].state)
+ 383   3              LCD_DisplayBpm(x, 48, 36, PICTURE2);
+ 384   3            else
+ 385   3              LCD_DisplayBpm(x, 48, 36, PICTURE1);
+ 386   3      
+ 387   3            if (i == 0)
+ 388   3            {
+ 389   4              if (type)
+ 390   4                LCD_DisplayString(x - 21, 68, "C1", 16, 0);
+ 391   4              else
+ 392   4                LCD_DisplayString(x, 90, "C1", 16, 0);
+ 393   4            }
+ 394   3            if (i == 1)
+ 395   3            {
+ 396   4              if (type)
+ 397   4                LCD_DisplayString(x - 21, 68, "C2", 16, 0);
+ 398   4              else
+ 399   4                LCD_DisplayString(x, 90, "C2", 16, 0);
+ 400   4            }
+ 401   3            if (i == 2)
+ 402   3            {
+ 403   4              if (type)
+ 404   4                LCD_DisplayString(x - 21, 68, "C3", 16, 0);
+ 405   4              else
+ 406   4                LCD_DisplayString(x, 90, "C3", 16, 0);
+ 407   4            }
+ 408   3            if (i == 3)
+ 409   3            {
+ 410   4              if (type)
+ 411   4                LCD_DisplayString(x - 21, 68, "C4", 16, 0);
+ 412   4              else
+ 413   4                LCD_DisplayString(x, 90, "C4", 16, 0);
+ 414   4            }
+ 415   3          }
+ 416   2          x = x + y;
+ 417   2        }
+ 418   1      
+ 419   1        LCD_DisplayBpm(111, 0, 48, PICTURE);
+ 420   1        LCD_DisplayLine(30, 48, 210, 1);
+ 421   1      }
+ 422          
+ 423          //void cap_disp(void)
+ 424          //{
+ 425          
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 8   
+
+ 426          //  uint8_t x = 21;
+ 427          //  uint8_t y = 60;
+ 428          //  uint8_t i;
+ 429          
+ 430          //  switch (g_cap_num.cap_num)
+ 431          //  {
+ 432          //  case 1:
+ 433          //    x = 111;
+ 434          //    y = 0;
+ 435          //    break;
+ 436          
+ 437          //  case 2:
+ 438          //    x = 21;
+ 439          //    y = 180;
+ 440          //    break;
+ 441          //  case 3:
+ 442          //    x = 21;
+ 443          //    y = 90;
+ 444          //    break;
+ 445          //  case 4:
+ 446          //    x = 21;
+ 447          //    y = 60;
+ 448          //    break;
+ 449          //  }
+ 450          
+ 451          //  for (i = 0; i < g_cap_num.cap_num; i++)
+ 452          //  {
+ 453          //    if (g_cap[i].onf)
+ 454          //    {
+ 455          //      if (g_cap[i].state)
+ 456          //        LCD_DisplayBpm(x, 48, 36, PICTURE2);
+ 457          //      else
+ 458          //        LCD_DisplayBpm(x, 48, 36, PICTURE1);
+ 459          
+ 460          //      if (i == 0)
+ 461          //      {
+ 462          
+ 463          //        LCD_DisplayString(x - 21, 68, "C1", 16, 0);
+ 464          //      }
+ 465          //      if (i == 1)
+ 466          //      {
+ 467          //        LCD_DisplayString(x - 21, 68, "C2", 16, 0);
+ 468          //      }
+ 469          //      if (i == 2)
+ 470          //      {
+ 471          //        LCD_DisplayString(x - 21, 68, "C3", 16, 0);
+ 472          //      }
+ 473          //      if (i == 3)
+ 474          //      {
+ 475          //        LCD_DisplayString(x - 21, 68, "C4", 16, 0);
+ 476          //      }
+ 477          //    }
+ 478          //    x = x + y;
+ 479          //  }
+ 480          
+ 481          //  LCD_DisplayBpm(111, 0, 48, PICTURE);
+ 482          //  LCD_DisplayLine(30, 48, 210, 1);
+ 483          //}
+ 484          
+ 485          // ¹¤¾ßº¯Êý£ºµ¥¸öÊý×Ö£¨0-99£©²ð·ÖÎªÁ½Î»×Ö·û£¨²¹Áã£©£¬Ö±½ÓÏÔÊ¾
+ 486          // num£º0-99µÄÊý×Ö£»x/y£ºÆðÊ¼×ø±ê£»size£º×ÖÌå´óÐ¡£»inverse£º·´ÏÔ
+ 487          void disp_two_digit(uint8_t num, uint16_t x, uint8_t y, uint8_t size, uint8_t inverse)
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 9   
+
+ 488          {
+ 489   1      
+ 490   1        // 2. ²ð·ÖÊ®Î»ºÍ¸öÎ»
+ 491   1        uint8_t ten = num / 10; // Ê®Î»£ºÈç12¡ú1£¬5¡ú0
+ 492   1        uint8_t one = num % 10; // ¸öÎ»£ºÈç12¡ú2£¬5¡ú5
+ 493   1        char ten_str[2] = {0};  // ´æ´¢Ê®Î»×Ö·ûµÄ×Ö·û´®£¨Èç"1"¡¢"0"£©
+ 494   1        char one_str[2] = {0};  // ´æ´¢¸öÎ»×Ö·ûµÄ×Ö·û´®£¨Èç"2"¡¢"5"£©
+ 495   1        // 1. ºÏ·¨ÐÔ¼ì²é£ºÈ·±£numÊÇÁ½Î»Êý£¨0-99£©£¬³¬³öÔòÏÔÊ¾99
+ 496   1        if (num > 99)
+ 497   1        {
+ 498   2          num = 99;
+ 499   2        }
+ 500   1      
+ 501   1        // 3. ¶¨ÒåÁÙÊ±×Ö·û´®£¨±ØÐëÒÔ'\0'½áÎ²£¬ÊÊÅäLCD_DisplayStringµÄ²ÎÊýÒªÇó£©
+ 502   1      
+ 503   1        // 4. °ÑÊý×Ö×ªÎª×Ö·û£¬²¢¸³Öµ¸ø×Ö·û´®
+ 504   1        ten_str[0] = '0' + ten; // Êý×Ö0¡ú'0'£¬Êý×Ö1¡ú'1'...
+ 505   1        one_str[0] = '0' + one;
+ 506   1        LCD_DisplayString(x, y, ten_str, size, inverse);     // ÏÔÊ¾Ê®Î»
+ 507   1        LCD_DisplayString(x + 9, y, one_str, size, inverse); // ÏÔÊ¾¸öÎ»£¨Æ«ÒÆ¶ÔÓ¦¿í¶È£©
+ 508   1      }
+ 509          
+ 510          // ÓÅ»¯ºóµÄÊ±¼äÏÔÊ¾º¯Êý£¨ÎÞsprintf£¬ÎÞ×Ö·û´®Êý×é£©
+ 511          void time_disp(Date_Struct date, Time_Struct time, uint16_t x, uint8_t y)
+ 512          {
+ 513   1        // ========== ÏÔÊ¾ÈÕÆÚ£ºxx/xx/xx ==========
+ 514   1        // Äê·Ý£¨Á½Î»£©
+ 515   1        disp_two_digit(date.year, x, y, 8, 0);
+ 516   1        // Ð±¸Ü '/'
+ 517   1        LCD_DisplayChar(x + 18, y, "/", 8, 0); // 12=6*2£¨Á½¸öÊý×Ö¿í¶È£©
+ 518   1        // ÔÂ·Ý
+ 519   1        disp_two_digit(date.month, x + 27, y, 8, 0); //
+ 520   1        // Ð±¸Ü '/'
+ 521   1        LCD_DisplayChar(x + 45, y, "/", 8, 0); //
+ 522   1        // ÈÕÆÚ
+ 523   1        disp_two_digit(date.day, x + 54, y, 8, 0); //
+ 524   1      
+ 525   1        // ========== ÏÔÊ¾Ê±¼ä£ºxx:xx:xx ==========
+ 526   1        // Ð¡Ê±
+ 527   1        disp_two_digit(time.hour, x, y + 8, 8, 0);
+ 528   1        // Ã°ºÅ ':'
+ 529   1        LCD_DisplayChar(x + 18, y + 8, ":", 8, 0);
+ 530   1        // ·ÖÖÓ
+ 531   1        disp_two_digit(time.minute, x + 27, y + 8, 8, 0);
+ 532   1        // Ã°ºÅ ':'
+ 533   1        LCD_DisplayChar(x + 45, y + 8, ":", 8, 0); //
+ 534   1        // Ãë
+ 535   1        disp_two_digit(time.second, x + 54, y + 8, 8, 0); //
+ 536   1      }
+ 537          
+ 538          
+ 539          /* 
+ 540           * @brief  ÅÐ¶ÏÊý×éÖÐËùÓÐÆôÓÃµÄµçÈÝ²ÎÊývalueÊÇ·ñÏàµÈ
+ 541           * @param  cap_array: µçÈÝ²ÎÊýÊý×éÊ×µØÖ·
+ 542           * @param  n: Êý×é³¤¶È
+ 543           * @return uint8_t: 0=²»ÏàµÈ/ÎÞÆôÓÃÔªËØ£¬1=ËùÓÐÆôÓÃÔªËØµÄvalueÏàµÈ
+ 544           * @note   1. ½öÅÐ¶Ïonf=1µÄÔªËØ£¬onf=0µÄºöÂÔ£»
+ 545           *         2. ÈôÖ»ÓÐ1¸öÆôÓÃÔªËØ£¬·µ»Ø1£¨µ¥¸öÔªËØÄ¬ÈÏ¡°ÏàµÈ¡±£©£»
+ 546           *         3. ÈôÎÞÈÎºÎÆôÓÃÔªËØ£¬·µ»Ø0£¨ÎÞÅÐ¶ÏÒâÒå£©¡£
+ 547           */
+ 548          uint8_t Cap_CheckAllEnabledValueEqual(Cap_Para_Struct *cap_array, uint8_t n)
+ 549          {
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 10  
+
+ 550   1          /* C89ÒªÇó£º±äÁ¿±ØÐëÔÚ´úÂë¿é¿ªÍ·ÉùÃ÷ */
+ 551   1          uint16_t ref_value;
+ 552   1          uint8_t enabled_count;
+ 553   1          uint8_t i;
+ 554   1      
+ 555   1          /* ³õÊ¼»¯±äÁ¿£¨C89½¨ÒéÏÔÊ½³õÊ¼»¯£© */
+ 556   1          ref_value = 0;
+ 557   1          enabled_count = 0;
+ 558   1      
+ 559   1          /* ±ß½ç¼ì²é£ºÊý×éÎª¿Õ/³¤¶ÈÎª0£¬Ö±½Ó·µ»Ø0 */
+ 560   1          if (cap_array == (Cap_Para_Struct *)0 || n == 0) {
+ 561   2              return 0;
+ 562   2          }
+ 563   1      
+ 564   1          /* µÚÒ»²½£º±éÀúÊý×é£¬ÕÒµ½µÚÒ»¸öÆôÓÃµÄÔªËØ£¬¼ÇÂ¼Æävalue */
+ 565   1          for (i = 0; i < n; i++) {
+ 566   2              if (cap_array[i].onf == 1) {
+ 567   3                  ref_value = cap_array[i].value;
+ 568   3                  enabled_count++;
+ 569   3                  break; /* ÕÒµ½µÚÒ»¸öÆôÓÃÔªËØ£¬ÍË³öÑ­»· */
+ 570   3              }
+ 571   2          }
+ 572   1      
+ 573   1          /* µÚ¶þ²½£ºÎÞÈÎºÎÆôÓÃÔªËØ£¬·µ»Ø0 */
+ 574   1          if (enabled_count == 0) {
+ 575   2              return 0;
+ 576   2          }
+ 577   1      
+ 578   1          /* µÚÈý²½£º±éÀúÊ£ÓàÔªËØ£¬¼ì²éËùÓÐÆôÓÃÔªËØµÄvalueÊÇ·ñµÈÓÚ²Î¿¼Öµ */
+ 579   1          for (i = 0; i < n; i++) {
+ 580   2              /* Ìø¹ý½ûÓÃÔªËØ */
+ 581   2              if (cap_array[i].onf != 1) {
+ 582   3                  continue;
+ 583   3              }
+ 584   2              /* ÕÒµ½²»ÏàµÈµÄvalue£¬Ö±½Ó·µ»Ø0 */
+ 585   2              if (cap_array[i].value != ref_value) {
+ 586   3                  return 0;
+ 587   3              }
+ 588   2              enabled_count++;
+ 589   2          }
+ 590   1      
+ 591   1          /* ËùÓÐÆôÓÃÔªËØµÄvalue¶¼ÏàµÈ£¬·µ»Ø1 */
+ 592   1      
+ 593   1          return 1;
+ 594   1      }
+ 595          
+ 596          /*********²Ëµ¥²¿·Ö********/
+ 597          
+ 598          /*********¼ÆÁ¿½çÃæÏÔÊ¾********/
+ 599          void Meter_Disp(uint8_t key_val)
+ 600          {
+ 601   1        uint8_t str[20];
+ 602   1        uint16_t dat;
+ 603   1        uint8_t uint, f;
+ 604   1        uint8_t x, y, i;
+ 605   1        meter_data(g_meter_chip[3].rp, 1, &dat, &uint, &f);
+ 606   1        data_disp(dat, uint, f, 1, str);
+ 607   1      
+ 608   1        LCD_DisplayString(0, 0, str, 8, 0);
+ 609   1      
+ 610   1        meter_data(g_meter_chip[3].u_a, 2, &dat, &uint, &f);
+ 611   1        data_disp(dat, uint, f, 2, str);
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 11  
+
+ 612   1      
+ 613   1        LCD_DisplayString(0, 9, str, 8, 0);
+ 614   1      
+ 615   1        meter_data(g_meter_chip[3].i_a, 3, &dat, &uint, &f);
+ 616   1        data_disp(dat, uint, f, 3, str);
+ 617   1      
+ 618   1        LCD_DisplayString(0, 18, str, 8, 0);
+ 619   1      
+ 620   1        meter_data(g_meter_chip[3].rq, 4, &dat, &uint, &f);
+ 621   1        data_disp(dat, uint, f, 4, str);
+ 622   1      
+ 623   1        LCD_DisplayString(0, 27, str, 8, 0);
+ 624   1      
+ 625   1        meter_data(g_meter_chip[3].rq, 5, &dat, &uint, &f);
+ 626   1        data_disp(dat, uint, f, 5, str);
+ 627   1      
+ 628   1        LCD_DisplayString(0, 36, str, 8, 0);
+ 629   1      
+ 630   1        switch (g_cap_num.pro_num)
+ 631   1        {
+ 632   2        case 1:
+ 633   2          x = 93;
+ 634   2          y = 0;
+ 635   2          break;
+ 636   2      
+ 637   2        case 2:
+ 638   2          x = 0;
+ 639   2          y = 180;
+ 640   2          break;
+ 641   2        case 3:
+ 642   2          x = 0;
+ 643   2          y = 90;
+ 644   2          break;
+ 645   2        case 4:
+ 646   2          x = 0;
+ 647   2          y = 60;
+ 648   2          break;
+ 649   2        }
+ 650   1      
+ 651   1        for (i = 1; i <= g_cap_num.pro_num; i++)
+ 652   1        {
+ 653   2          cap_data_disp(i, 1, g_cap_data[i - 1].ia, 0, str);
+ 654   2          LCD_DisplayString(x, 86, str, 8, 0);
+ 655   2          cap_data_disp(i, 2, g_cap_data[i - 1].ic, 0, str);
+ 656   2          LCD_DisplayString(x, 94, str, 8, 0);
+ 657   2          cap_data_disp(i, 3, g_cap_data[i - 1].uo, 1, str);
+ 658   2          LCD_DisplayString(x, 102, str, 8, 0);
+ 659   2          x = x + y;
+ 660   2        }
+ 661   1        
+ 662   1        cap_disp(g_cap_num.pro_num);
+ 663   1      
+ 664   1        switch (key_val)
+ 665   1        {
+ 666   2        case KEY_0_UP: // ÉÏ£ºÍ¬ÁÐÉÏÒÆ£¬Ñ­»·
+ 667   2      
+ 668   2          break;
+ 669   2      
+ 670   2        case KEY_1_UP: // ÏÂ£ºÍ¬ÁÐÏÂÒÆ£¬Ñ­»·
+ 671   2      
+ 672   2          break;
+ 673   2      
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 12  
+
+ 674   2        case KEY_2_UP: // ×ó¼ü
+ 675   2      
+ 676   2          break;
+ 677   2      
+ 678   2        case KEY_4_UP:
+ 679   2          menu_state.id = MAIN_MENU;
+ 680   2          menu_state.switch_temp_flag = 1;
+ 681   2          LCD_Clear();
+ 682   2          return;
+ 683   2        case KEY_5_UP:
+ 684   2        default:
+ 685   2          break;
+ 686   2        }
+ 687   1      }
+ 688          
+ 689          /*********ÏÂ¶ËÏÔÊ¾********/
+ 690          void Low_Disp(void)
+ 691          {
+ 692   1        if (menu_state.id != ADJUST_CAP)
+ 693   1          LCD_DisplayLine(0, 110, 240, 0);
+ 694   1        if ((menu_state.id == METER_DISP) || (menu_state.id == SYSTEM_SETTING) || (menu_state.id == MAIN_MENU) |
+             -| (menu_state.id == PARAM_SETTING) || (menu_state.id == PROT_PARAM)\ 
+ 695   1          || (menu_state.id == DATA_STATISTICS) || (menu_state.id == EVENT_LOG) || (menu_state.id == PASSWORD) || 
+             -(menu_state.id == SAMPLING_CALIBRATION)|| (menu_state.id == STATISTIC_PARAM)\
+ 696   1        || (menu_state.id == SAMPLING))
+ 697   1        {
+ 698   2          LCD_DisplayString(129, 112, "Ê±¼ä", 16, 0);
+ 699   2          time_disp(system_date, system_time, 171, 112);
+ 700   2      
+ 701   2          if (g_adjust_cap.mode)
+ 702   2          {
+ 703   3            LCD_DisplayString(6, 112, "ÊÖ¶¯", 16, 0);
+ 704   3          }
+ 705   2          else
+ 706   2            LCD_DisplayString(6, 112, "×Ô¶¯", 16, 0);
+ 707   2        }
+ 708   1      }
+ 709          
+ 710          /******Ö÷²Ëµ¥**********/
+ 711          
+ 712          void Main_Menu(uint8_t key_val)
+ 713          {
+ 714   1        code const char *g_main_menu_titles[7] = {
+ 715   1      
+ 716   1            "Ö÷²Ëµ¥", "ÏµÍ³ÉèÖÃ", "²ÎÊý\xFDÉèÖÃ", "µ÷ÊÔÍ¶ÇÐ", "²ÉÑùÐ£×¼", "ÊÂ¼þ¼ÇÂ¼", "Êý\xFD¾ÝÍ³¼Æ"};
+ 717   1      
+ 718   1        switch (key_val)
+ 719   1        {
+ 720   2        case KEY_0_UP: // ÉÏ£ºÍ¬ÁÐÉÏÒÆ£¬Ñ­»·
+ 721   2          item1 = item1 - 2;
+ 722   2          if (item1 <= 0)
+ 723   2            item1 = item1 + 6;
+ 724   2          break;
+ 725   2      
+ 726   2        case KEY_1_UP: // ÏÂ£ºÍ¬ÁÐÏÂÒÆ£¬Ñ­»·
+ 727   2          item1 = item1 + 2;
+ 728   2          if (item1 > 6)
+ 729   2            item1 = item1 - 6;
+ 730   2          break;
+ 731   2      
+ 732   2        case KEY_2_UP: // ×ó¼ü
+ 733   2          item1 = item1 - 1;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 13  
+
+ 734   2          if (item1 <= 0)
+ 735   2            item1 = item1 + 6;
+ 736   2          break;
+ 737   2      
+ 738   2        case KEY_3_UP: // ÓÒ¼ü
+ 739   2          item1 = item1 + 1;
+ 740   2          if (item1 > 6)
+ 741   2            item1 = item1 - 6;
+ 742   2          break;
+ 743   2      
+ 744   2        case KEY_4_UP:
+ 745   2          switch (item1)
+ 746   2          {
+ 747   3          case 1:
+ 748   3            menu_state.id = PASSWORD;
+ 749   3            menu_state.last_id = SYSTEM_SETTING;
+ 750   3            break; //
+ 751   3          case 2:
+ 752   3            menu_state.id = PASSWORD;
+ 753   3            menu_state.last_id = PARAM_SETTING;
+ 754   3            break; //
+ 755   3          case 3:
+ 756   3            menu_state.last_id = ADJUST_CAP;
+ 757   3            menu_state.id = PASSWORD;
+ 758   3            break; //
+ 759   3          case 4:
+ 760   3            menu_state.id = PASSWORD;
+ 761   3            menu_state.last_id = SAMPLING_CALIBRATION;
+ 762   3            break; //
+ 763   3          case 5:
+ 764   3            menu_state.id = EVENT_LOG;
+ 765   3            break; //
+ 766   3          case 6:
+ 767   3            menu_state.id = DATA_STATISTICS;
+ 768   3            break; //
+ 769   3          }
+ 770   2          LCD_Clear();
+ 771   2          menu_state.switch_temp_flag = 1;
+ 772   2          state=0;
+ 773   2          return;
+ 774   2          break;
+ 775   2        case KEY_5_UP:
+ 776   2          menu_state.id = METER_DISP;
+ 777   2          LCD_Clear();
+ 778   2          menu_state.switch_temp_flag = 1;
+ 779   2          state=0;
+ 780   2          item1=1;
+ 781   2          return;
+ 782   2          break;
+ 783   2        default:
+ 784   2          break;
+ 785   2        }
+ 786   1      
+ 787   1        // ========== ÏÔÊ¾²Ëµ¥ ==========
+ 788   1      
+ 789   1        LCD_DisplayString(93, 0, g_main_menu_titles[0], 16, 0);
+ 790   1        LCD_DisplayString(24, 24, g_main_menu_titles[1], 16, item1 == 1 ? 1 : 0);
+ 791   1        LCD_DisplayString(144, 24, g_main_menu_titles[2], 16, item1 == 2 ? 1 : 0);
+ 792   1        LCD_DisplayString(24, 48, g_main_menu_titles[3], 16, item1 == 3 ? 1 : 0);
+ 793   1        LCD_DisplayString(144, 48, g_main_menu_titles[4], 16, item1 == 4 ? 1 : 0);
+ 794   1        LCD_DisplayString(24, 72, g_main_menu_titles[5], 16, item1 == 5 ? 1 : 0);
+ 795   1        LCD_DisplayString(144, 72, g_main_menu_titles[6], 16, item1 == 6 ? 1 : 0);
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 14  
+
+ 796   1      }
+ 797          
+ 798          /******²ÎÊýÉèÖÃ²Ëµ¥**********/
+ 799          
+ 800          typedef enum
+ 801          {
+ 802            PARA_SYS = 0,     // 0£ºÏµÍ³²ÎÊý - ±êÌâË÷Òý1
+ 803            PARA_CAP = 1,     // 1£ºµçÈÝ²ÎÊý - ±êÌâË÷Òý2
+ 804            PARA_CTRL = 2,    // 2£º¿ØÖÆ²ÎÊý - ±êÌâË÷Òý3
+ 805            PARA_PROTECT = 3, // 3£º±£»¤²ÎÊý - ±êÌâË÷Òý4
+ 806            PARA_COMM = 4,    // 4£ºÍ¨Ñ¶²ÎÊý - ±êÌâË÷Òý5
+ 807            PARA_STAT = 5     // 5£ºÍ³¼Æ²ÎÊý - ±êÌâË÷Òý6
+ 808          } ParaMenuID;
+ 809          
+ 810          void Para_Menu(uint8_t key_val)
+ 811          {
+ 812   1      
+ 813   1        // 6. ²ÎÊý²Ëµ¥¶àÓïÑÔ±êÌâÊý×é£¨ºËÐÄ£º¶ÔÓ¦IDµÄÖÐÓ¢ÎÄÎÄ±¾£©
+ 814   1        code const char *g_para_menu_titles[7] = {
+ 815   1            // [LANG_ZH] ÖÐÎÄ
+ 816   1      
+ 817   1            "²ÎÊý\xFDÉèÖÃ", // Ë÷Òý0£ºÖ÷±êÌâ
+ 818   1            "ÏµÍ³²ÎÊý\xFD", // Ë÷Òý1£ºPARA_SYS(0)
+ 819   1            "µçÈÝ²ÎÊý\xFD", // Ë÷Òý2£ºPARA_CAP(1)
+ 820   1            "¿ØÖÆ²ÎÊý\xFD", // Ë÷Òý3£ºPARA_CTRL(2)
+ 821   1            "±£»¤²ÎÊý\xFD", // Ë÷Òý4£ºPARA_PROTECT(3)
+ 822   1            "Í¨Ñ¶²ÎÊý\xFD", // Ë÷Òý5£ºPARA_COMM(4)
+ 823   1            "Í³¼Æ²ÎÊý\xFD"  // Ë÷Òý6£ºPARA_STAT(5)
+ 824   1      
+ 825   1        };
+ 826   1      
+ 827   1        switch (key_val)
+ 828   1        {
+ 829   2        case KEY_0_UP: // ÉÏ£ºÍ¬ÁÐÉÏÒÆ£¬Ñ­»·
+ 830   2          item2 = item2 - 2;
+ 831   2          if (item2 <= 0)
+ 832   2            item2 = item2 + 6;
+ 833   2          break;
+ 834   2      
+ 835   2        case KEY_1_UP: // ÏÂ£ºÍ¬ÁÐÏÂÒÆ£¬Ñ­»·
+ 836   2          item2 = item2 + 2;
+ 837   2          if (item2 > 6)
+ 838   2            item2 = item2 - 6;
+ 839   2          break;
+ 840   2      
+ 841   2        case KEY_2_UP: // ×ó¼ü
+ 842   2          item2 = item2 - 1;
+ 843   2          if (item2 <= 0)
+ 844   2            item2 = item2 + 6;
+ 845   2          break;
+ 846   2      
+ 847   2        case KEY_3_UP: // ÓÒ¼ü
+ 848   2          item2 = item2 + 1;
+ 849   2          if (item2 > 6)
+ 850   2            item2 = item2 - 6;
+ 851   2          break;
+ 852   2      
+ 853   2        case KEY_4_UP:
+ 854   2          switch (item2)
+ 855   2          {
+ 856   3          case 1:
+ 857   3            menu_state.id = SYSTEM_PARAM;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 15  
+
+ 858   3            break; //
+ 859   3          case 2:
+ 860   3            menu_state.id = CAP_PARAM;
+ 861   3            break; //
+ 862   3          case 3:
+ 863   3            menu_state.id = CTRL_PARAM;
+ 864   3            break; //
+ 865   3          case 4:
+ 866   3            menu_state.id = PROT_PARAM;
+ 867   3            break; //
+ 868   3          case 5:
+ 869   3            menu_state.id = COMM_PARAM;
+ 870   3            break; //
+ 871   3      //    case 6:
+ 872   3      //      menu_state.id = STATISTIC_PARAM;
+ 873   3      //      break; //
+ 874   3          }
+ 875   2          menu_state.switch_temp_flag = 1;
+ 876   2          LCD_Clear();
+ 877   2          state=0;
+ 878   2          return;
+ 879   2          break;
+ 880   2        case KEY_5_UP:
+ 881   2          menu_state.id = MAIN_MENU;
+ 882   2          menu_state.switch_temp_flag = 1;
+ 883   2          LCD_Clear();
+ 884   2          state=0;
+ 885   2          item2=1;
+ 886   2          return;
+ 887   2          break;
+ 888   2        default:
+ 889   2          break;
+ 890   2        }
+ 891   1      
+ 892   1        // ========== ÏÔÊ¾²Ëµ¥£º´Ó¶àÓïÑÔÊý×é¶ÁÈ¡ÎÄ±¾ ==========
+ 893   1      
+ 894   1        // Ö÷±êÌâ£¨Ë÷Òý0£©
+ 895   1        LCD_DisplayString(81, 0, g_para_menu_titles[0], 16, 0);
+ 896   1        // µÚÒ»ÐÐ×ó£ºÏµÍ³²ÎÊý£¨Ë÷Òý1£©
+ 897   1        LCD_DisplayString(24, 24, g_para_menu_titles[1], 16, item2 == 1 ? 1 : 0);
+ 898   1        // µÚÒ»ÐÐÓÒ£ºµçÈÝ²ÎÊý£¨Ë÷Òý2£©
+ 899   1        LCD_DisplayString(144, 24, g_para_menu_titles[2], 16, item2 == 2 ? 1 : 0);
+ 900   1        // µÚ¶þÐÐ×ó£º¿ØÖÆ²ÎÊý£¨Ë÷Òý3£©
+ 901   1        LCD_DisplayString(24, 48, g_para_menu_titles[3], 16, item2 == 3 ? 1 : 0);
+ 902   1        // µÚ¶þÐÐÓÒ£º±£»¤²ÎÊý£¨Ë÷Òý4£©
+ 903   1        LCD_DisplayString(144, 48, g_para_menu_titles[4], 16, item2 == 4 ? 1 : 0);
+ 904   1        // µÚÈýÐÐ×ó£ºÍ¨Ñ¶²ÎÊý£¨Ë÷Òý5£©
+ 905   1        LCD_DisplayString(24, 72, g_para_menu_titles[5], 16, item2 == 5 ? 1 : 0);
+ 906   1        // µÚÈýÐÐÓÒ£ºÍ³¼Æ²ÎÊý£¨Ë÷Òý6£©
+ 907   1        LCD_DisplayString(144, 72, g_para_menu_titles[6], 16, item2 == 6 ? 1 : 0);
+ 908   1      }
+ 909          
+ 910          /*********ÏµÍ³ÉèÖÃ²Ëµ¥²¿·Ö********/
+ 911          
+ 912          void System_Setting(u8 key_val)
+ 913          {
+ 914   1        // ²ÎÊý
+ 915   1        u8 y = 0; // ÐÐ¼ä¸ô
+ 916   1        u8 j;
+ 917   1      
+ 918   1        static Time_Struct time;
+ 919   1        static Date_Struct date;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 16  
+
+ 920   1        static Pass_Para_Struct pass = {0};
+ 921   1        static Alarm_Para_Struct var1 = {0};
+ 922   1        static Contra_Para_Struct var2 = {0};
+ 923   1      
+ 924   1        code const char *g_systemset_menu_titles[6] = {
+ 925   1            "ÏµÍ³ÉèÖÃ",
+ 926   1            "±£»¤¿ÚÁî",
+ 927   1            "ÈÕÆÚÉèÖÃ",
+ 928   1            "Ê±¼äÉèÖÃ",
+ 929   1            "±¨¾¯ÉèÖÃ",
+ 930   1            "¶Ô±È¶ÈÉèÖÃ"
+ 931   1      
+ 932   1        };
+ 933   1      
+ 934   1        if (state == 0) // µÚÒ»´Î½øÈë²Ëµ¥£¬ÏµÍ³±äÁ¿¸³Öµµ½ÁÙÊ±±äÁ¿¡£³õÊ¼»¯×ø±ê£¬ä¯ÀÀÄ£Ê½£¬±à¼­×ø±êÎª0
+ 935   1        {
+ 936   2      
+ 937   2          pass = g_protect_password;
+ 938   2          date = system_date;
+ 939   2          time = system_time;
+ 940   2      
+ 941   2          var1 = g_alarm_minutes;
+ 942   2          var2 = g_lcd_contrast;
+ 943   2          edit_col = 0;
+ 944   2          state = 1;
+ 945   2          item_id = 1;
+ 946   2        }
+ 947   1        else if (state == 1)
+ 948   1        { // ä¯ÀÀÄ£Ê½
+ 949   2          switch (key_val)
+ 950   2          {
+ 951   3          case KEY_0_UP:
+ 952   3            item_id--;
+ 953   3            if (item_id < 1)
+ 954   3              item_id = 5;
+ 955   3            break;
+ 956   3          case KEY_1_UP:
+ 957   3            item_id++;
+ 958   3            if (item_id > 5)
+ 959   3              item_id = 1;
+ 960   3            break;
+ 961   3          case KEY_4_UP:
+ 962   3            state = 2; // ½øÈë±à¼­
+ 963   3            break;
+ 964   3      
+ 965   3          case KEY_5_UP:
+ 966   3            menu_state.id = MAIN_MENU;
+ 967   3      
+ 968   3            state = 0;
+ 969   3            menu_state.switch_temp_flag = 1;
+ 970   3            LCD_Clear();
+ 971   3            return;
+ 972   3            break;
+ 973   3          }
+ 974   2          edit_col = 0;
+ 975   2        }
+ 976   1        else if (state == 2) // ²ÎÊý±à¼­
+ 977   1        {
+ 978   2          switch (key_val)
+ 979   2          {
+ 980   3          case KEY_0_UP: // ¼Ó1
+ 981   3            if (item_id == 1)
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 17  
+
+ 982   3            {
+ 983   4              pass.pass_code[edit_col] += 1;
+ 984   4              if (pass.pass_code[edit_col] > 9)
+ 985   4                pass.pass_code[edit_col] = 0;
+ 986   4            }
+ 987   3            if (item_id == 2) // ±à¼­ÄêÔÂÈÕ£¨ÐÞÕý¼Ó1Âß¼­£©
+ 988   3            {
+ 989   4              if (edit_col < 2)
+ 990   4              {
+ 991   5                // Äê·Ý£¨2Î»£º00-99Ñ­»·£©
+ 992   5                adjust_digit_u8(&date.year, edit_col, 1, 2);
+ 993   5              }
+ 994   4              else if (edit_col < 4) // ÔÂ·Ý£¨1-12Ñ­»·£©
+ 995   4              {
+ 996   5                uint8_t digit1 = date.month / 10; // ÔÂÊ®Î»£¨0/1£©
+ 997   5                uint8_t digit0 = date.month % 10; // ÔÂ¸öÎ»
+ 998   5      
+ 999   5                switch (edit_col)
+1000   5                {
+1001   6                case 2: // ÔÂÊ®Î»£¨0¡ú1£¬1¡ú0Ñ­»·£©
+1002   6                  digit1 = (digit1 + 1) % 2;
+1003   6                  break;
+1004   6                case 3: // ÔÂ¸öÎ»£¨ÊÜÊ®Î»Ô¼Êø£©
+1005   6                  if (digit1 == 0)
+1006   6                  {
+1007   7                    // Ê®Î»=0£¨1-9ÔÂ£©£º¸öÎ»0-9Ñ­»·
+1008   7                    digit0 = (digit0 + 1) % 10;
+1009   7                  }
+1010   6                  else // Ê®Î»=1£¨10-12ÔÂ£©£º¸öÎ»0-2Ñ­»·
+1011   6                  {
+1012   7                    digit0 = (digit0 + 1) % 3;
+1013   7                  }
+1014   6                  break;
+1015   6                }
+1016   5      
+1017   5                // ÐÞÕýÎÞÐ§ÔÂ·Ý£¨0¡ú1£¬13¡ú1£©
+1018   5                date.month = digit1 * 10 + digit0;
+1019   5              }
+1020   4              else if (edit_col < 6) // ÈÕÆÚ£¨1-31Ñ­»·£©
+1021   4              {
+1022   5                uint8_t digit1 = date.day / 10; // ÈÕÊ®Î»£¨0/1/2/3£©
+1023   5                uint8_t digit0 = date.day % 10; // ÈÕ¸öÎ»
+1024   5      
+1025   5                switch (edit_col)
+1026   5                {
+1027   6                case 4: // ÈÕÊ®Î»£¨0¡ú1¡ú2¡ú3¡ú0Ñ­»·£©
+1028   6                  digit1 = (digit1 + 1) % 4;
+1029   6                  break;
+1030   6                case 5: // ÈÕ¸öÎ»£¨ÊÜÊ®Î»Ô¼Êø£©
+1031   6                  if (digit1 == 3)
+1032   6                  {
+1033   7                    // Ê®Î»=3£¨30-31ÈÕ£©£º¸öÎ»0-1Ñ­»·
+1034   7                    digit0 = (digit0 + 1) % 2;
+1035   7                  }
+1036   6                  else // Ê®Î»=0/1/2£¨1-9/10-19/20-29ÈÕ£©£º¸öÎ»0-9Ñ­»·
+1037   6                  {
+1038   7                    digit0 = (digit0 + 1) % 10;
+1039   7                  }
+1040   6                  break;
+1041   6                }
+1042   5      
+1043   5                // ÐÞÕýÎÞÐ§ÈÕÆÚ£¨0¡ú1£¬32¡ú1£©
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 18  
+
+1044   5                date.day = digit1 * 10 + digit0;
+1045   5              }
+1046   4            }
+1047   3            if (item_id == 3) // ±à¼­Ê±·ÖÃë£¨time.hour/minute/second£¬00:00:00¸ñÊ½£©
+1048   3            {
+1049   4              if (edit_col < 2) // ±à¼­Ð¡Ê±£¨00-23£©
+1050   4              {
+1051   5                uint8_t hour_tens = time.hour / 10;  // Ê±Ê®Î»£¨0-2£©
+1052   5                uint8_t hour_units = time.hour % 10; // Ê±¸öÎ»£¨0-9/0-3£©
+1053   5      
+1054   5                switch (edit_col)
+1055   5                {
+1056   6                case 0: // Ê±Ê®Î»£¨0¡ú1¡ú2¡ú0Ñ­»·£©
+1057   6                  hour_tens = (hour_tens + 1) % 3;
+1058   6                  // ÈôÊ®Î»´Ó2¡ú0£¬¸öÎ»Í¬²½ÖÃ0£¨±ÜÃâ23¡ú0xÎÞÐ§Öµ£¬Ö±½ÓÌø00£©
+1059   6                  if (hour_tens == 0)
+1060   6                    hour_units = 0;
+1061   6                  break;
+1062   6                case 1: // Ê±¸öÎ»£¨ÊÜÊ®Î»Ô¼Êø£©
+1063   6                  if (hour_tens == 2)
+1064   6                  {
+1065   7                    // Ê®Î»=2£¨20-23£©£¬¸öÎ»0-3Ñ­»·£¨¼Ó1£©
+1066   7                    hour_units = (hour_units + 1) % 4;
+1067   7                  }
+1068   6                  else
+1069   6                  {
+1070   7                    // Ê®Î»=0/1£¨00-19£©£¬¸öÎ»0-9Ñ­»·£¨¼Ó1£©
+1071   7                    hour_units = (hour_units + 1) % 10;
+1072   7                  }
+1073   6                  break;
+1074   6                }
+1075   5      
+1076   5                // ×éºÏÐ¡Ê±£¬È·±£00-23£¨ÈßÓà·À»¤£©
+1077   5                time.hour = hour_tens * 10 + hour_units;
+1078   5                if (time.hour > 23)
+1079   5                  time.hour = 0;
+1080   5              }
+1081   4              else if (edit_col < 4) // ±à¼­·ÖÖÓ£¨00-59£©
+1082   4              {
+1083   5                uint8_t min_tens = time.minute / 10;  // ·ÖÊ®Î»£¨0-5£©
+1084   5                uint8_t min_units = time.minute % 10; // ·Ö¸öÎ»£¨0-9£©
+1085   5      
+1086   5                switch (edit_col)
+1087   5                {
+1088   6                case 2: // ·ÖÊ®Î»£¨0¡ú1¡ú...¡ú5¡ú0Ñ­»·£©
+1089   6                  min_tens = (min_tens + 1) % 6;
+1090   6                  break;
+1091   6                case 3: // ·Ö¸öÎ»£¨0¡ú9Ñ­»·£©
+1092   6                  min_units = (min_units + 1) % 10;
+1093   6                  break;
+1094   6                }
+1095   5      
+1096   5                // ×éºÏ·ÖÖÓ£¬È·±£00-59
+1097   5                time.minute = min_tens * 10 + min_units;
+1098   5              }
+1099   4              else if (edit_col < 6) // ±à¼­Ãë£¨00-59£¬Óë·ÖÖÓÂß¼­Ò»ÖÂ£©
+1100   4              {
+1101   5                uint8_t sec_tens = time.second / 10;  // ÃëÊ®Î»£¨0-5£©
+1102   5                uint8_t sec_units = time.second % 10; // Ãë¸öÎ»£¨0-9£©
+1103   5      
+1104   5                switch (edit_col)
+1105   5                {
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 19  
+
+1106   6                case 4: // ÃëÊ®Î»£¨0¡ú1¡ú...¡ú5¡ú0Ñ­»·£©
+1107   6                  sec_tens = (sec_tens + 1) % 6;
+1108   6                  break;
+1109   6                case 5: // Ãë¸öÎ»£¨0¡ú9Ñ­»·£©
+1110   6                  sec_units = (sec_units + 1) % 10;
+1111   6                  break;
+1112   6                }
+1113   5      
+1114   5                // ×éºÏÃë£¬È·±£00-59
+1115   5                time.second = sec_tens * 10 + sec_units;
+1116   5              }
+1117   4            }
+1118   3            if (item_id == 4)
+1119   3            {
+1120   4              var1.value++;
+1121   4              if (var1.value > 61)
+1122   4                var1.value = 0; // ±£ÁôÔ­ÓÐ
+1123   4            }
+1124   3            if (item_id == 5)
+1125   3            {
+1126   4              var2.value++;
+1127   4               LCD_Darker(var2.value);
+1128   4            }
+1129   3            break;
+1130   3      
+1131   3          case KEY_1_UP: // ¼õ1
+1132   3            if (item_id == 1)
+1133   3            {
+1134   4              pass.pass_code[edit_col] -= 1;
+1135   4              if (pass.pass_code[edit_col] < 0)
+1136   4                pass.pass_code[edit_col] = 9;
+1137   4            }
+1138   3            if (item_id == 2) // ±à¼­ÄêÔÂÈÕ£¨²¹³ä¼õ1Âß¼­£©
+1139   3            {
+1140   4              if (edit_col < 2)
+1141   4              {
+1142   5                // Äê·Ý£¨2Î»£º00-99Ñ­»·£©
+1143   5                // Äê·Ý£¨2Î»£º00-99Ñ­»·£©
+1144   5                adjust_digit_u8(&date.year, edit_col, -1, 2);
+1145   5              }
+1146   4              else if (edit_col < 4) // ÔÂ·Ý£¨1-12Ñ­»·£©
+1147   4              {
+1148   5                uint8_t digit1 = date.month / 10; // ÔÂÊ®Î»£¨0/1£©
+1149   5                uint8_t digit0 = date.month % 10; // ÔÂ¸öÎ»
+1150   5      
+1151   5                switch (edit_col)
+1152   5                {
+1153   6                case 2: // ÔÂÊ®Î»£¨1¡ú0£¬0¡ú1Ñ­»·£©
+1154   6                  digit1 = (digit1 - 1 + 2) % 2;
+1155   6                  break;
+1156   6                case 3: // ÔÂ¸öÎ»£¨ÊÜÊ®Î»Ô¼Êø£©
+1157   6                  if (digit1 == 0)
+1158   6                  {
+1159   7                    // Ê®Î»=0£¨1-9ÔÂ£©£º¸öÎ»0¡ú9Ñ­»·
+1160   7                    digit0 = (digit0 - 1 + 10) % 10;
+1161   7                  }
+1162   6                  else // Ê®Î»=1£¨10-12ÔÂ£©£º¸öÎ»0¡ú2Ñ­»·
+1163   6                  {
+1164   7                    digit0 = (digit0 - 1 + 3) % 3;
+1165   7                  }
+1166   6                  break;
+1167   6                }
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 20  
+
+1168   5      
+1169   5                // ÐÞÕýÎÞÐ§ÔÂ·Ý£¨0¡ú12£©
+1170   5                date.month = digit1 * 10 + digit0;
+1171   5              }
+1172   4              else if (edit_col < 6) // ÈÕÆÚ£¨1-31Ñ­»·£©
+1173   4              {
+1174   5                uint8_t digit1 = date.day / 10; // ÈÕÊ®Î»£¨0/1/2/3£©
+1175   5                uint8_t digit0 = date.day % 10; // ÈÕ¸öÎ»
+1176   5      
+1177   5                switch (edit_col)
+1178   5                {
+1179   6                case 4: // ÈÕÊ®Î»£¨3¡ú2¡ú1¡ú0¡ú3Ñ­»·£©
+1180   6                  digit1 = (digit1 - 1 + 4) % 4;
+1181   6                  break;
+1182   6                case 5: // ÈÕ¸öÎ»£¨ÊÜÊ®Î»Ô¼Êø£©
+1183   6                  if (digit1 == 3)
+1184   6                  {
+1185   7                    // Ê®Î»=3£¨30-31ÈÕ£©£º¸öÎ»0¡ú1Ñ­»·
+1186   7                    digit0 = (digit0 - 1 + 2) % 2;
+1187   7                  }
+1188   6                  else // Ê®Î»=0/1/2£º¸öÎ»0¡ú9Ñ­»·
+1189   6                  {
+1190   7                    digit0 = (digit0 - 1 + 10) % 10;
+1191   7                  }
+1192   6                  break;
+1193   6                }
+1194   5      
+1195   5                // ÐÞÕýÎÞÐ§ÈÕÆÚ£¨0¡ú31£©
+1196   5                date.day = digit1 * 10 + digit0;
+1197   5              }
+1198   4            }
+1199   3            if (item_id == 3) // ±à¼­Ê±·ÖÃë£¨time.hour/minute/second£¬00:00:00¸ñÊ½£©
+1200   3            {
+1201   4              if (edit_col < 2) // ±à¼­Ð¡Ê±£¨00-23£©
+1202   4              {
+1203   5                uint8_t hour_tens = time.hour / 10;  // Ê±Ê®Î»£¨0-2£©
+1204   5                uint8_t hour_units = time.hour % 10; // Ê±¸öÎ»£¨0-9/0-3£©
+1205   5      
+1206   5                switch (edit_col)
+1207   5                {
+1208   6                case 0: // Ê±Ê®Î»£¨2¡ú1¡ú0¡ú2Ñ­»·£©
+1209   6                  hour_tens = (hour_tens - 1 + 3) % 3;
+1210   6                  // ÈôÊ®Î»´Ó0¡ú2£¬¸öÎ»Í¬²½ÖÃ3£¨±ÜÃâ0x¡ú23£¬·ûºÏ×î´ó23µã£©
+1211   6                  if (hour_tens == 2)
+1212   6                    hour_units = 3;
+1213   6                  break;
+1214   6                case 1: // Ê±¸öÎ»£¨ÊÜÊ®Î»Ô¼Êø£©
+1215   6                  if (hour_tens == 2)
+1216   6                  {
+1217   7                    // Ê®Î»=2£¨20-23£©£¬¸öÎ»3¡ú2¡ú1¡ú0¡ú3Ñ­»·£¨¼õ1£©
+1218   7                    hour_units = (hour_units - 1 + 4) % 4;
+1219   7                  }
+1220   6                  else
+1221   6                  {
+1222   7                    // Ê®Î»=0/1£¨00-19£©£¬¸öÎ»9¡ú8¡ú...¡ú0¡ú9Ñ­»·£¨¼õ1£©
+1223   7                    hour_units = (hour_units - 1 + 10) % 10;
+1224   7                  }
+1225   6                  break;
+1226   6                }
+1227   5      
+1228   5                // ×éºÏÐ¡Ê±£¬È·±£00-23£¨ÈßÓà·À»¤£©
+1229   5                time.hour = hour_tens * 10 + hour_units;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 21  
+
+1230   5                if (time.hour > 23)
+1231   5                  time.hour = 23;
+1232   5              }
+1233   4              else if (edit_col < 4) // ±à¼­·ÖÖÓ£¨00-59£©
+1234   4              {
+1235   5                uint8_t min_tens = time.minute / 10;  // ·ÖÊ®Î»£¨0-5£©
+1236   5                uint8_t min_units = time.minute % 10; // ·Ö¸öÎ»£¨0-9£©
+1237   5      
+1238   5                switch (edit_col)
+1239   5                {
+1240   6                case 2: // ·ÖÊ®Î»£¨5¡ú4¡ú...¡ú0¡ú5Ñ­»·£©
+1241   6                  min_tens = (min_tens - 1 + 6) % 6;
+1242   6                  break;
+1243   6                case 3: // ·Ö¸öÎ»£¨9¡ú8¡ú...¡ú0¡ú9Ñ­»·£©
+1244   6                  min_units = (min_units - 1 + 10) % 10;
+1245   6                  break;
+1246   6                }
+1247   5      
+1248   5                // ×éºÏ·ÖÖÓ£¬È·±£00-59
+1249   5                time.minute = min_tens * 10 + min_units;
+1250   5              }
+1251   4              else if (edit_col < 6) // ±à¼­Ãë£¨00-59£¬Óë·ÖÖÓÂß¼­Ò»ÖÂ£©
+1252   4              {
+1253   5                uint8_t sec_tens = time.second / 10;  // ÃëÊ®Î»£¨0-5£©
+1254   5                uint8_t sec_units = time.second % 10; // Ãë¸öÎ»£¨0-9£©
+1255   5      
+1256   5                switch (edit_col)
+1257   5                {
+1258   6                case 4: // ÃëÊ®Î»£¨5¡ú4¡ú...¡ú0¡ú5Ñ­»·£©
+1259   6                  sec_tens = (sec_tens - 1 + 6) % 6;
+1260   6                  break;
+1261   6                case 5: // Ãë¸öÎ»£¨9¡ú8¡ú...¡ú0¡ú9Ñ­»·£©
+1262   6                  sec_units = (sec_units - 1 + 10) % 10;
+1263   6                  break;
+1264   6                }
+1265   5      
+1266   5                // ×éºÏÃë£¬È·±£00-59
+1267   5                time.second = sec_tens * 10 + sec_units;
+1268   5              }
+1269   4            }
+1270   3            if (item_id == 4)
+1271   3            {
+1272   4              var1.value--;
+1273   4              if (var1.value < 0)
+1274   4                var1.value = 61; // ±£ÁôÔ­ÓÐ
+1275   4            }
+1276   3            if (item_id == 5)
+1277   3            {
+1278   4              var2.value--;
+1279   4               LCD_Darker(var2.value);
+1280   4            }
+1281   3            break;
+1282   3          case KEY_2_UP:
+1283   3            edit_col--;
+1284   3            if (item_id < 4)
+1285   3            {
+1286   4              if (edit_col < 0)
+1287   4                edit_col = 5;
+1288   4            }
+1289   3      
+1290   3            break;
+1291   3          case KEY_3_UP:
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 22  
+
+1292   3            edit_col++;
+1293   3            if (item_id < 4)
+1294   3            {
+1295   4              if (edit_col > 5)
+1296   4                edit_col = 0;
+1297   4            }
+1298   3            break;
+1299   3          case KEY_4_UP:
+1300   3      
+1301   3            switch (item_id)
+1302   3            {
+1303   4            case 1:
+1304   4              if(Set_Pass_Para(&pass))
+1305   4              {
+1306   5                 g_hard_state.iic_err_times++;        
+1307   5              }
+1308   4              else
+1309   4              {
+1310   5              for (j = 0; j < 6; j++)
+1311   5                g_protect_password.pass_code[j] = pass.pass_code[j];
+1312   5              state = 1;
+1313   5              edit_col = 0;
+1314   5      
+1315   5              }
+1316   4              break;
+1317   4            case 2:
+1318   4      
+1319   4              if (FM31256_RTC_Write_Date(&date))
+1320   4              {
+1321   5                g_hard_state.iic_err_times++;     
+1322   5              }
+1323   4              else
+1324   4              {
+1325   5                system_date.year = date.year;
+1326   5                system_date.month = date.month;
+1327   5                system_date.day = date.day;
+1328   5                state = 1;
+1329   5                edit_col = 0;
+1330   5              }
+1331   4      
+1332   4              break;
+1333   4            case 3:
+1334   4              if (FM31256_RTC_Write_Time(&time))
+1335   4              {
+1336   5                  g_hard_state.iic_err_times++;   
+1337   5              }
+1338   4              else
+1339   4              {
+1340   5                system_time.hour = time.hour;
+1341   5                system_time.minute = time.minute;
+1342   5                system_time.second = time.second;
+1343   5                state = 1;
+1344   5                edit_col = 0;
+1345   5              }
+1346   4      
+1347   4              break;
+1348   4            case 4:
+1349   4              if(Set_Alarm_Para(&var1))
+1350   4              {
+1351   5                  g_hard_state.iic_err_times++;   
+1352   5              } 
+1353   4              else
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 23  
+
+1354   4              {
+1355   5              g_alarm_minutes.value = var1.value;
+1356   5              state = 1;
+1357   5              edit_col = 0;
+1358   5              }
+1359   4              break;
+1360   4            case 5:
+1361   4              
+1362   4              if(Set_Contra_Para(&var2))
+1363   4               {
+1364   5                  g_hard_state.iic_err_times++;   
+1365   5               }
+1366   4               else
+1367   4               {
+1368   5                g_lcd_contrast.value = var2.value;
+1369   5                state = 1;
+1370   5              LCD_Darker(g_lcd_contrast.value);
+1371   5              edit_col = 0;
+1372   5               }
+1373   4              break;
+1374   4            }
+1375   3            break;
+1376   3          case KEY_5_UP:
+1377   3            state = 1;
+1378   3            edit_col = 0;
+1379   3      
+1380   3            break;
+1381   3          }
+1382   2        }
+1383   1      
+1384   1        // ========== ÏÔÊ¾²¿·Ö ==========
+1385   1      
+1386   1        // Ö÷±êÌâ
+1387   1        LCD_DisplayString(81, 0, g_systemset_menu_titles[0], 16, 0);
+1388   1      
+1389   1        LCD_DisplayString(0, 18, g_systemset_menu_titles[1], 16, ((item_id == 1) && (state == 1)) ? 1 : 0);
+1390   1      
+1391   1        for (j = 0; j < 6; j++)
+1392   1          LCD_DisplayNum(81 + j * 12, 18, pass.pass_code[j], 16, 1, ((item_id == 1) && (state == 2) && (j == edi
+             -t_col)) ? 0 : 0xff, 0, 1);
+1393   1      
+1394   1        LCD_DisplayString(0, 36, g_systemset_menu_titles[2], 16, ((item_id == 2) && (state == 1)) ? 1 : 0);
+1395   1        LCD_DisplayNum(81, 36, date.year, 16, 2, ((item_id == 2) && (state == 2) && (edit_col < 2)) ? edit_col :
+             - 0xff, 0, 1);
+1396   1        LCD_DisplayString(99, 36, "-", 16, 0);
+1397   1        LCD_DisplayNum(108, 36, date.month, 16, 2, ((item_id == 2) && (state == 2) && ((edit_col < 4) && (edit_c
+             -ol > 1))) ? edit_col - 2 : 0xff, 0, 1);
+1398   1        LCD_DisplayString(126, 36, "-", 16, 0);
+1399   1        LCD_DisplayNum(135, 36, date.day, 16, 2, ((item_id == 2) && (state == 2) && ((edit_col < 6) && (edit_col
+             - > 3))) ? edit_col - 4 : 0xff, 0, 1); // ÈÕÆÚ
+1400   1      
+1401   1        LCD_DisplayString(0, 54, g_systemset_menu_titles[3], 16, ((item_id == 3) && (state == 1)) ? 1 : 0);
+1402   1        LCD_DisplayNum(81, 54, time.hour, 16, 2, ((item_id == 3) && (state == 2) && (edit_col < 2)) ? edit_col :
+             - 0xff, 0, 1);
+1403   1        LCD_DisplayString(99, 54, ":", 16, 0);
+1404   1        LCD_DisplayNum(108, 54, time.minute, 16, 2, ((item_id == 3) && (state == 2) && ((edit_col < 4) && (edit_
+             -col > 1))) ? edit_col - 2 : 0xff, 0, 1);
+1405   1        LCD_DisplayString(126, 54, ":", 16, 0);
+1406   1        LCD_DisplayNum(135, 54, time.second, 16, 2, ((item_id == 3) && (state == 2) && ((edit_col < 6) && (edit_
+             -col > 3))) ? edit_col - 4 : 0xff, 0, 1); // Ê±¼ä
+1407   1      
+1408   1        LCD_DisplayString(0, 72, g_systemset_menu_titles[4], 16, ((item_id == 4) && (state == 1)) ? 1 : 0);
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 24  
+
+1409   1        if (var1.value > 0 && (var1.value < 61))
+1410   1        {
+1411   2          LCD_DisplayNum(81, 72, var1.value, 16, 2, 0xff, ((item_id == 4) && (state == 2)) ? 1 : 0, 1);
+1412   2          LCD_DisplayString(99, 72, "min", 16, 0);
+1413   2        }
+1414   1        else if (var1.value == 0)
+1415   1        {
+1416   2          LCD_DisplayString(81, 72, "¹Ø±Õ", 16, ((item_id == 4) && (state == 2)) ? 1 : 0);
+1417   2          LCD_DisplayString(117, 72, " ", 16, 0);
+1418   2        }
+1419   1        else if (var1.value == 61)
+1420   1        {
+1421   2          LCD_DisplayString(81, 72, "³£¿ª", 16, ((item_id == 4) && (state == 2)) ? 1 : 0);
+1422   2          LCD_DisplayString(117, 72, " ", 16, 0);
+1423   2        }
+1424   1      
+1425   1        LCD_DisplayString(0, 90, g_systemset_menu_titles[5], 16, ((item_id == 5) && (state == 1)) ? 1 : 0);
+1426   1        LCD_DisplayNum(99, 90, var2.value, 16, 3, 0xff, ((item_id == 5) && (state == 2)) ? 1 : 0, 1);
+1427   1      
+1428   1        for (j = 0; j < 4; j++)
+1429   1          LCD_DisplayString(72, y = y + 18, ":", 16, 0);
+1430   1      
+1431   1        LCD_DisplayString(90, y = y + 18, ":", 16, 0);
+1432   1      }
+1433          
+1434          /*********µçÈÝµ÷ÊÔÉèÖÃ²Ëµ¥²¿·Ö********/
+1435          void Cap_Adjust(u8 key_val)
+1436          {
+1437   1        static u8 var1; // ÁÙÊ±±äÁ¿
+1438   1        u8 j, k,x,y;
+1439   1      
+1440   1        code const char *g_Cap_titles[4] = {
+1441   1      
+1442   1            "µ÷ÊÔÍ¶µçÈÝ",
+1443   1            "µ÷ÊÔÍ¶ÇÐ",
+1444   1            "¹Ø±Õ",
+1445   1            "´ò¿ª",
+1446   1      
+1447   1        };
+1448   1      
+1449   1        if (state == 0) // µÚÒ»´Î½øÈë½çÃæ£¬ÏµÍ³±äÁ¿¸³Öµµ½ÁÙÊ±±äÁ¿,ä¯ÀÀÄ£Ê½£¬±à¼­×ø±êÎª0xff
+1450   1        {
+1451   2          var1 = g_adjust_cap.mode;
+1452   2          switch (key_val)
+1453   2          {
+1454   3      
+1455   3          case KEY_4_UP:
+1456   3            state = 1;
+1457   3            g_adjust_cap.mode = var1;
+1458   3            edit_col=0;
+1459   3            break;
+1460   3      
+1461   3          case KEY_5_UP:
+1462   3            state = 0;
+1463   3            menu_state.id = MAIN_MENU;
+1464   3            LCD_Clear();
+1465   3            menu_state.switch_temp_flag = 1;
+1466   3            return;
+1467   3            break;
+1468   3          }
+1469   2        }
+1470   1        else if (state == 1) // ½øÈëµ÷ÊÔµçÈÝ
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 25  
+
+1471   1        {
+1472   2      
+1473   2          switch (key_val)
+1474   2          {
+1475   3          case KEY_0_UP:
+1476   3          case KEY_1_UP:
+1477   3            if (var1 == 0)
+1478   3              var1 = 1;
+1479   3            else
+1480   3              var1 = 0;
+1481   3            break;
+1482   3          case KEY_4_UP: // È·ÈÏ¼ü½øÈëµ÷ÊÔ
+1483   3      
+1484   3            
+1485   3            if(Set_AutoManual_Para(&g_adjust_cap))
+1486   3            {
+1487   4              g_hard_state.iic_err_times++;       
+1488   4            }
+1489   3            else
+1490   3             g_adjust_cap.mode = var1;        
+1491   3            if (g_adjust_cap.mode)
+1492   3            {
+1493   4              LCD_Clear();
+1494   4              state = 2;
+1495   4            }
+1496   3            else
+1497   3              state = 0;
+1498   3            for (j = 0; j < g_cap_num.cap_num; j++)
+1499   3            {
+1500   4              if (g_cap[j].onf)
+1501   4              {
+1502   5                edit_col = j+1; // ¼ýÍ·Î»ÖÃ 1,2,3,4
+1503   5                break;
+1504   5              }
+1505   4            }
+1506   3            break;
+1507   3      
+1508   3          case KEY_5_UP:
+1509   3            state = 0;
+1510   3            break;
+1511   3          }
+1512   2        }
+1513   1        else if (state == 2) // µ÷ÊÔµçÈÝ½çÃæ
+1514   1        {
+1515   2          switch (key_val)
+1516   2          {
+1517   3          case KEY_3_UP: // ÒÆÎ»¼ýÍ·£¬¿ÉÌø¹ýÃ»ÓÐµÄµçÈÝ
+1518   3      
+1519   3            edit_col++;
+1520   3            if (edit_col > g_cap_num.cap_num)
+1521   3              edit_col = 1;
+1522   3            for (j = edit_col; j < g_cap_num.cap_num+1; j++)
+1523   3            {
+1524   4              if (g_cap[j-1].onf)
+1525   4              {
+1526   5                edit_col = j;
+1527   5                break;
+1528   5              }
+1529   4            }
+1530   3            break;
+1531   3          case KEY_2_UP:
+1532   3            edit_col--;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 26  
+
+1533   3            if (edit_col < 1)
+1534   3              edit_col = g_cap_num.cap_num;
+1535   3            for (j = edit_col; j > 0; j--)
+1536   3            {
+1537   4              if (g_cap[j-1].onf)
+1538   4              {
+1539   5                edit_col = j;
+1540   5                break;
+1541   5              }
+1542   4            }
+1543   3            break;
+1544   3          case KEY_4_UP:
+1545   3      
+1546   3            state = 3;
+1547   3            break;
+1548   3      
+1549   3          case KEY_5_UP:
+1550   3            state = 1;
+1551   3            LCD_Clear();
+1552   3            break;
+1553   3          }
+1554   2        }
+1555   1        else if (state == 3)
+1556   1        {
+1557   2      
+1558   2          switch (key_val)
+1559   2          {
+1560   3          case KEY_0_UP:
+1561   3          case KEY_1_UP: // Í¶ÇÐ×°»»
+1562   3      
+1563   3            break;
+1564   3          case KEY_4_UP:
+1565   3            if (g_cap[edit_col-1].state)
+1566   3              g_cap[edit_col-1].state = 0;
+1567   3            else
+1568   3              g_cap[edit_col-1].state = 1;
+1569   3            state = 2;
+1570   3            break;
+1571   3          case KEY_5_UP:
+1572   3            // ÎÞ²Ù×÷
+1573   3            break;
+1574   3          }
+1575   2        }
+1576   1      
+1577   1        // ÏÔÊ¾²¿·Ö
+1578   1      
+1579   1        if (state < 2)
+1580   1        {
+1581   2          LCD_DisplayString(81, 0, g_Cap_titles[0], 16, 0);
+1582   2      
+1583   2          LCD_DisplayString(0, 20, g_Cap_titles[1], 16, ((state == 0)) ? 1 : 0);
+1584   2          LCD_DisplayString(72, 20, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+1585   2          LCD_DisplayString(81, 20, (var1 == 0) ? g_Cap_titles[2] : g_Cap_titles[3], 16, ((state == 1)) ? 1 : 0)
+             -;
+1586   2          LCD_DisplayString(129, 112, "Ê±¼ä", 16, 0);
+1587   2          time_disp(system_date, system_time, 171, 112);
+1588   2      
+1589   2          if (g_adjust_cap.mode)
+1590   2          {
+1591   3            LCD_DisplayString(6, 112, "ÊÖ¶¯", 16, 0);
+1592   3          }
+1593   2          else
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 27  
+
+1594   2            LCD_DisplayString(6, 112, "×Ô¶¯", 16, 0);
+1595   2          LCD_DisplayLine(0, 108, 240, 0);
+1596   2        }
+1597   1        else
+1598   1        {
+1599   2      
+1600   2          LCD_DisplayString(20, 20, "µ÷ÊÔÍ¶ÇÐ", 16, 0);
+1601   2          cap_disp(1);
+1602   2          switch (g_cap_num.cap_num)
+1603   2          {
+1604   3          case 1:
+1605   3            x = 111;
+1606   3            y = 0;
+1607   3            break;
+1608   3      
+1609   3          case 2:
+1610   3            x = 21;
+1611   3            y = 180;
+1612   3            break;
+1613   3          case 3:
+1614   3            x = 21;
+1615   3            y = 90;
+1616   3            break;
+1617   3          case 4:
+1618   3            x = 21;
+1619   3            y = 60;
+1620   3            break;
+1621   3          }
+1622   2          for (k = 1; k < g_cap_num.cap_num+1; k++)
+1623   2          {
+1624   3            LCD_DisplayString(x, 88, (k == edit_col) ? "¼ý\xFD" : "  ", 16, 0);
+1625   3            x=x+y;
+1626   3          }
+1627   2          switch (g_cap_num.cap_num)
+1628   2          {
+1629   3          case 1:
+1630   3            x = 111;
+1631   3            y = 0;
+1632   3            break;
+1633   3      
+1634   3          case 2:
+1635   3            x = 21;
+1636   3            y = 180;
+1637   3            break;
+1638   3          case 3:
+1639   3            x = 21;
+1640   3            y = 90;
+1641   3            break;
+1642   3          case 4:
+1643   3            x = 21;
+1644   3            y = 60;
+1645   3            break;
+1646   3          }
+1647   2          for (k = 1; k < g_cap_num.cap_num+1; k++)
+1648   2          {
+1649   3      
+1650   3            if (g_cap[k-1].onf)
+1651   3            {
+1652   4      
+1653   4              LCD_DisplayString(x, 108,
+1654   4                                g_cap[k-1].state ? "ÇÐ" : "Í¶",
+1655   4                                16,
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 28  
+
+1656   4                                ((state == 3) && (edit_col == k)) ? 1 : 0);
+1657   4            }
+1658   3      
+1659   3            x = x + y;
+1660   3          }
+1661   2        }
+1662   1      }
+1663          
+1664          /*********²ÉÑùÐ£×¼²Ëµ¥********/
+1665          void Sampling_Adiust(uint8_t key_val)
+1666          {
+1667   1        if (key_val == KEY_5_UP)
+1668   1        {
+1669   2          menu_state.id = MAIN_MENU;
+1670   2          LCD_Clear();
+1671   2          menu_state.switch_temp_flag = 1;
+1672   2          return;
+1673   2        }
+1674   1      
+1675   1        LCD_DisplayString(84, 0, "²ÉÑùÐ£×¼", 16, 0);
+1676   1      
+1677   1        LCD_DisplayString(0, 20, "°æ±¾:", 16, 0);
+1678   1        LCD_DisplayString(48, 20, "Ä¬ÈÏ", 16, 0);
+1679   1      }
+1680          
+1681          /*********ÊÂ¼þ¼ÇÂ¼²Ëµ¥********/
+1682          
+1683          // ÅäÖÃ²ÎÊý
+1684          #define EVENT_LOG_CNT 100    // ×ÜÊÂ¼þÊý
+1685          #define TOTAL_PAGE_CNT 20    // ×ÜÒ³Êý
+1686          #define EVENT_PER_PAGE 5     // Ã¿Ò³ÏÔÊ¾5Ìõ
+1687          #define EVENT_STR_BUF_LEN 16 // ÊÂ¼þ×Ö·û´®»º³åÇø³¤¶È
+1688          
+1689          // ÏÔÊ¾×´Ì¬±äÁ¿
+1690          static uint8_t s_current_page = 1;  // µ±Ç°Ò³£¨1~20£©
+1691          static uint8_t s_selected_line = 1; // µ±Ç°Ñ¡ÖÐÐÐ£¨1~5£©
+1692          static uint8_t s_refresh_flag = 1;  // ÏÔÊ¾Ë¢ÐÂ±êÖ¾
+1693          static uint8_t s_latest_event_idx;  // ×îÐÂÊÂ¼þµÄFRAMË÷Òý£¨Ê×´Î½øÈë²Ëµ¥¶ÁÈ¡£©
+1694          static uint8_t s_page_first_seq;    // µ±Ç°Ò³µÚÒ»Ìõ¼ÇÂ¼µÄÐòºÅ£¨ÈçµÚ1Ò³=1£¬µÚ2Ò³=6£©
+1695          static uint8_t s_first_enter = 1;
+1696          // »º´æµ±Ç°Ò³µÄ5ÌõÊÂ¼þ¼ÇÂ¼£¨±ÜÃâÖØ¸´¶ÁFRAM£©
+1697          static Event_Log_Struct s_page_event_cache[EVENT_PER_PAGE];
+1698          // »º´æµ±Ç°Ò³µÄ5Ìõ¸ñÊ½»¯×Ö·û´®£¨±ÜÃâÖØ¸´Æ´½Ó£©
+1699          static char s_page_str_cache[EVENT_PER_PAGE][EVENT_STR_BUF_LEN];
+1700          
+1701          // ÁÙÊ±»º³åÇø£¨¸´ÓÃ£©
+1702          static char s_temp_buf[4];
+1703          static uint8_t s_cache_valid = 0; // »º´æÓÐÐ§±êÖ¾£¨1=ÓÐÐ§£¬0=ÐèÖØÐÂ¶ÁÈ¡£©
+1704          
+1705          /*
+1706          *********************************************************************************************************
+1707          *   º¯ Êý Ãû: Event_Log_Get_Latest_Idx
+1708          *   ¹¦ÄÜËµÃ÷: Ê×´Î½øÈë²Ëµ¥Ê±£¬»ñÈ¡×îÐÂÊÂ¼þµÄFRAMË÷Òý£¨½ö¶Á1´Î£©
+1709          *   ·µ »Ø Öµ: ×îÐÂÊÂ¼þµÄFRAMË÷Òý£¨0~99£©
+1710          *********************************************************************************************************
+1711          */
+1712          static uint8_t Event_Log_Get_Latest_Idx(void)
+1713          {
+1714   1        uint8_t current_idx = Get_Event_Index();
+1715   1        // ×îÐÂÊÂ¼þË÷Òý£ºµ±Ç°Ë÷ÒýÎª0¡ú×îÐÂÊÇ99£¬·ñÔòÎªµ±Ç°Ë÷Òý-1
+1716   1        return (current_idx == 0) ? (EVENT_LOG_CNT - 1) : (current_idx - 1);
+1717   1      }
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 29  
+
+1718          
+1719          /*
+1720          *********************************************************************************************************
+1721          *   º¯ Êý Ãû: Event_Log_Calc_Seq_To_Idx
+1722          *   ¹¦ÄÜËµÃ÷: ¸ù¾ÝÊÂ¼þÐòºÅ£¨001~100£©¼ÆËã¶ÔÓ¦µÄFRAMË÷Òý£¨ºËÐÄÓ³Éä£©
+1723          *   ÐÎ    ²Î: seq_num - ÊÂ¼þÐòºÅ£¨1=×îÐÂ£¬100=×î¾É£©
+1724          *   ·µ »Ø Öµ: FRAMË÷Òý£¨0~99£©
+1725          *********************************************************************************************************
+1726          */
+1727          static uint8_t Event_Log_Calc_Seq_To_Idx(uint8_t seq_num)
+1728          {
+1729   1        if (seq_num < 1 || seq_num > EVENT_LOG_CNT)
+1730   1          return 0;
+1731   1        // ÐòºÅ1¡ú×îÐÂÊÂ¼þË÷Òý£¬ÐòºÅµÝÔö¡úË÷ÒýµÝ¼õ£¨Ñ­»·£©
+1732   1        return (s_latest_event_idx - (seq_num - 1) + EVENT_LOG_CNT) % EVENT_LOG_CNT;
+1733   1      }
+1734          
+1735          // ==================== ¹¤¾ßº¯Êý£¨±£Áô£©====================
+1736          static void Uint8_To_3Str(uint8_t num, char *buf)
+1737          {
+1738   1        if (buf == NULL)
+1739   1          return;
+1740   1        buf[0] = (num / 100) + '0';
+1741   1        buf[1] = (num % 100 / 10) + '0';
+1742   1        buf[2] = (num % 10) + '0';
+1743   1        buf[3] = '\0';
+1744   1      }
+1745          
+1746          static void Uint8_To_2Str(uint8_t num, char *buf)
+1747          {
+1748   1        if (buf == NULL)
+1749   1          return;
+1750   1        buf[0] = (num / 10) + '0';
+1751   1        buf[1] = (num % 10) + '0';
+1752   1        buf[2] = '\0';
+1753   1      }
+1754          
+1755          static const char *Event_Type_To_String(Event_Type_E type)
+1756          {
+1757   1        switch (type)
+1758   1        {
+1759   2        case EVENT_TYPE_NONE:
+1760   2          return "            ";
+1761   2        case EVENT_TYPE_OVER_CURRENT1:
+1762   2          return "Ò»Â·¹ý\xFDÁ÷";
+1763   2        case EVENT_TYPE_OVER_CURRENT2:
+1764   2          return "¶þÂ·¹ý\xFDÁ÷";
+1765   2        case EVENT_TYPE_OVER_CURRENT3:
+1766   2          return "ÈýÂ·¹ý\xFDÁ÷";
+1767   2        case EVENT_TYPE_OVER_CURRENT4:
+1768   2          return "ËÄÂ·¹ý\xFDÁ÷";
+1769   2        case EVENT_TYPE_OVER_CURRENT11:
+1770   2          return "Ò»Â·ËÙ¶Ï";
+1771   2        case EVENT_TYPE_OVER_CURRENT22:
+1772   2          return "¶þÂ·ËÙ¶Ï";
+1773   2        case EVENT_TYPE_OVER_CURRENT33:
+1774   2          return "ÈýÂ·ËÙ¶Ï";
+1775   2        case EVENT_TYPE_OVER_CURRENT44:
+1776   2          return "ËÄÂ·ËÙ¶Ï";
+1777   2        case EVENT_TYPE_OVER_VOL_ZERO1:
+1778   2          return "Ò»Â·ÁãÐò";
+1779   2        case EVENT_TYPE_OVER_VOL_ZERO2:
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 30  
+
+1780   2          return "¶þÂ·ÁãÐò";
+1781   2        case EVENT_TYPE_OVER_VOL_ZERO3:
+1782   2          return "ÈýÂ·ÁãÐò";
+1783   2        case EVENT_TYPE_OVER_VOL_ZERO4:
+1784   2          return "ËÄÂ·ÁãÐò";
+1785   2        case EVENT_TYPE_OVER_VOL:
+1786   2          return "ÏµÍ³¹ý\xFDÑ¹";
+1787   2        case EVENT_TYPE_UNDER_VOL:
+1788   2          return "ÏµÍ³Ç·Ñ¹";
+1789   2        case EVENT_TYPE_IN_STOP1:
+1790   2          return "Ò»Â·¾ÜÍ¶";
+1791   2        case EVENT_TYPE_IN_STOP2:
+1792   2          return "¶þÂ·¾ÜÍ¶";
+1793   2        case EVENT_TYPE_IN_STOP3:
+1794   2          return "ÈýÂ·¾ÜÍ¶";
+1795   2        case EVENT_TYPE_IN_STOP4:
+1796   2          return "ËÄÂ·¾ÜÍ¶";
+1797   2        case EVENT_TYPE_QUIT_STOP1:
+1798   2          return "Ò»Â·¾ÜÇÐ";
+1799   2        case EVENT_TYPE_QUIT_STOP2:
+1800   2          return "¶þÂ·¾ÜÇÐ";
+1801   2        case EVENT_TYPE_QUIT_STOP3:
+1802   2          return "ÈýÂ·¾ÜÇÐ";
+1803   2        case EVENT_TYPE_QUIT_STOP4:
+1804   2          return "ËÄÂ·¾ÜÇÐ";
+1805   2        case EVENT_TYPE_ERR1:
+1806   2          return "Ò»Â·Íâ²¿¹ÊÕÏ";
+1807   2        case EVENT_TYPE_ERR2:
+1808   2          return "¶þÂ·Íâ²¿¹ÊÕÏ";
+1809   2        case EVENT_TYPE_ERR3:
+1810   2          return "ÈýÂ·Íâ²¿¹ÊÕÏ";
+1811   2        case EVENT_TYPE_ERR4:
+1812   2          return "ËÄÂ·Íâ²¿¹ÊÕÏ";
+1813   2        case EVENT_TYPE_POWER_OFF:
+1814   2          return "Ç°¶Î×ÜÕ¢¶Ïµç";
+1815   2        case EVENT_TYPE_IN1:
+1816   2          return "Ò»Â·Í¶Èë";
+1817   2        case EVENT_TYPE_IN2:
+1818   2          return "¶þÂ·Í¶Èë";
+1819   2        case EVENT_TYPE_IN3:
+1820   2          return "ÈýÂ·Í¶Èë";
+1821   2        case EVENT_TYPE_IN4:
+1822   2          return "ËÄÂ·Í¶Èë";
+1823   2        case EVENT_TYPE_QUIT1:
+1824   2          return "Ò»Â·ÇÐ³ý\xFD";
+1825   2        case EVENT_TYPE_QUIT2:
+1826   2          return "¶þÂ·ÇÐ³ý\xFD";
+1827   2        case EVENT_TYPE_QUIT3:
+1828   2          return "ÈýÂ·ÇÐ³ý\xFD";
+1829   2        case EVENT_TYPE_QUIT4:
+1830   2          return "ËÄÂ·ÇÐ³ý\xFD";
+1831   2        default:
+1832   2          return "      ";
+1833   2        }
+1834   1      }
+1835          
+1836          // ==================== ¸ñÊ½»¯º¯Êý£¨±£Áô£©====================
+1837          static void Event_Log_Format_String(Event_Log_Struct *log, uint8_t seq_num, char *buf)
+1838          {
+1839   1      
+1840   1        uint8_t buf_idx = 0;
+1841   1        const char *type_str = Event_Type_To_String(log->event_type);
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 31  
+
+1842   1        if (log == NULL || buf == NULL)
+1843   1          return;
+1844   1        // Æ´½Ó3Î»ÐòºÅ
+1845   1        Uint8_To_3Str(seq_num, s_temp_buf);
+1846   1        buf[buf_idx++] = s_temp_buf[0];
+1847   1        buf[buf_idx++] = s_temp_buf[1];
+1848   1        buf[buf_idx++] = s_temp_buf[2];
+1849   1        buf[buf_idx++] = ' ';
+1850   1      
+1851   1        // Æ´½ÓÊÂ¼þÀàÐÍ
+1852   1        while (*type_str != '\0' && buf_idx < EVENT_STR_BUF_LEN - 1)
+1853   1        {
+1854   2          buf[buf_idx++] = *type_str++;
+1855   2        }
+1856   1        buf[buf_idx] = '\0';
+1857   1      }
+1858          /*
+1859          *********************************************************************************************************
+1860          *   º¯ Êý Ãû: Event_Log_Load_Page_Cache
+1861          *   ¹¦ÄÜËµÃ÷: ¼ÓÔØµ±Ç°Ò³µÄ5Ìõ¼ÇÂ¼µ½»º´æ£¨½ö¿çÒ³/Ê×´Î½øÈëÊ±µ÷ÓÃ£©
+1862          *   ·µ »Ø Öµ: ÎÞ
+1863          *********************************************************************************************************
+1864          */
+1865          static void Event_Log_Load_Page_Cache(void)
+1866          {
+1867   1        uint8_t fram_idx, seq_num, i;
+1868   1      
+1869   1        // ¼ÆËãµ±Ç°Ò³µÚÒ»Ìõ¼ÇÂ¼µÄÐòºÅ£¨ÈçµÚ1Ò³=1£¬µÚ2Ò³=6£¬µÚ3Ò³=11...£©
+1870   1        s_page_first_seq = (s_current_page - 1) * EVENT_PER_PAGE + 1;
+1871   1      
+1872   1        // ¶ÁÈ¡µ±Ç°Ò³µÄ5Ìõ¼ÇÂ¼µ½»º´æ
+1873   1        for (i = 0; i < EVENT_PER_PAGE; i++)
+1874   1        {
+1875   2          seq_num = s_page_first_seq + i;
+1876   2          if (seq_num > EVENT_LOG_CNT)
+1877   2          { // ±ß½ç±£»¤£¨±ÜÃâÔ½½ç£©
+1878   3            memset(&s_page_event_cache[i], 0, sizeof(Event_Log_Struct));
+1879   3            memset(s_page_str_cache[i], 0, EVENT_STR_BUF_LEN);
+1880   3            continue;
+1881   3          }
+1882   2      
+1883   2          // ¼ÆËãFRAMË÷Òý²¢¶ÁÈ¡¼ÇÂ¼
+1884   2          fram_idx = Event_Log_Calc_Seq_To_Idx(seq_num);
+1885   2          FM31256_FRAM_Read(EVENT_LOG_ADDR(fram_idx), (uint8_t *)&s_page_event_cache[i], sizeof(Event_Log_Struct
+             -));
+1886   2      
+1887   2          // ¸ñÊ½»¯×Ö·û´®²¢»º´æ
+1888   2          Event_Log_Format_String(&s_page_event_cache[i], seq_num, s_page_str_cache[i]);
+1889   2        }
+1890   1      
+1891   1        s_cache_valid = 1;  // »º´æÓÐÐ§
+1892   1        s_refresh_flag = 1; // ±ê¼ÇÐèÒªË¢ÐÂÏÔÊ¾
+1893   1      }
+1894          // ==================== ·ÖÒ³ÐÅÏ¢ÏÔÊ¾£¨±£Áô£©====================
+1895          static void Event_Log_Display_Page_Info(void)
+1896          {
+1897   1        char page_buf[8];
+1898   1        uint8_t idx = 0;
+1899   1      
+1900   1        Uint8_To_2Str(s_current_page, s_temp_buf);
+1901   1        page_buf[idx++] = s_temp_buf[0];
+1902   1        page_buf[idx++] = s_temp_buf[1];
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 32  
+
+1903   1        page_buf[idx++] = '/';
+1904   1      
+1905   1        Uint8_To_2Str(TOTAL_PAGE_CNT, s_temp_buf);
+1906   1        page_buf[idx++] = s_temp_buf[0];
+1907   1        page_buf[idx++] = s_temp_buf[1];
+1908   1        page_buf[idx] = '\0';
+1909   1      
+1910   1        LCD_DisplayString(195, 0, page_buf, 16, 0);
+1911   1      }
+1912          
+1913          /*
+1914          *********************************************************************************************************
+1915          *   º¯ Êý Ãû: Event_Log_Refresh_Line
+1916          *   ¹¦ÄÜËµÃ÷: ½öË¢ÐÂÖ¸¶¨ÐÐµÄÏÔÊ¾£¨·´ÏÔ/Õý³££©£¬²»ÖØ»æÕûÒ³£¨ºËÐÄÓÅ»¯£©
+1917          *   ÐÎ    ²Î: line - ÐÐºÅ£¨1~5£©£»highlight - 1=·´ÏÔ£¬0=Õý³£
+1918          *********************************************************************************************************
+1919          */
+1920          static void Event_Log_Refresh_Line(uint8_t line, uint8_t highlight)
+1921          {
+1922   1      
+1923   1        uint8_t line_idx = line - 1;
+1924   1        uint8_t line_y = 20 + line_idx * 16; // ÐÐY×ø±ê
+1925   1        if (line < 1 || line > EVENT_PER_PAGE)
+1926   1          return;
+1927   1        // ÏÔÊ¾ÊÂ¼þ×Ö·û´®
+1928   1        LCD_DisplayString(0, line_y, s_page_str_cache[line_idx], 16, highlight);
+1929   1      
+1930   1        // ÏÔÊ¾Ê±¼ä£¨½öÊÂ¼þÓÐÐ§Ê±£©
+1931   1        if (s_page_event_cache[line_idx].event_type != EVENT_TYPE_NONE)
+1932   1        {
+1933   2          disp_two_digit(s_page_event_cache[line_idx].year, 180, line_y, 8, 0);
+1934   2          LCD_DisplayChar(198, line_y, "/", 8, 0);
+1935   2          disp_two_digit(s_page_event_cache[line_idx].month, 207, line_y, 8, 0);
+1936   2          LCD_DisplayChar(225, line_y, "/", 8, 0);
+1937   2          disp_two_digit(s_page_event_cache[line_idx].day, 234, line_y, 8, 0);
+1938   2      
+1939   2          disp_two_digit(s_page_event_cache[line_idx].hour, 180, line_y + 8, 8, 0);
+1940   2          LCD_DisplayChar(198, line_y + 8, ":", 8, 0);
+1941   2          disp_two_digit(s_page_event_cache[line_idx].minute, 207, line_y + 8, 8, 0);
+1942   2          LCD_DisplayChar(225, line_y + 8, ":", 8, 0);
+1943   2          disp_two_digit(s_page_event_cache[line_idx].second, 234, line_y + 8, 8, 0);
+1944   2        }
+1945   1        else
+1946   1        {
+1947   2          LCD_DisplayString(180, line_y, "        ", 8, 0);
+1948   2          LCD_DisplayString(180, line_y + 8, "        ", 8, 0);
+1949   2        }
+1950   1      }
+1951          
+1952          /*
+1953          *********************************************************************************************************
+1954          *   º¯ Êý Ãû: Event_Log_Display_Page
+1955          *   ¹¦ÄÜËµÃ÷: ÕûÒ³Ë¢ÐÂ£¨½öÊ×´Î/¿çÒ³Ê±µ÷ÓÃ£©
+1956          *********************************************************************************************************
+1957          */
+1958          static void Event_Log_Display_Page(void)
+1959          {
+1960   1        uint8_t i;
+1961   1        if (!s_cache_valid)
+1962   1          return; // »º´æÎÞÐ§Ê±²»ÏÔÊ¾
+1963   1      
+1964   1        // 1. ÇåÆÁ+ÏÔÊ¾±êÌâ+·ÖÒ³ÐÅÏ¢
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 33  
+
+1965   1        LCD_DisplayString(81, 0, "ÊÂ¼þ¼ÇÂ¼", 16, 0);
+1966   1        Event_Log_Display_Page_Info();
+1967   1      
+1968   1        // 2. ÏÔÊ¾µ±Ç°Ò³ËùÓÐÐÐ£¨½öÊ×´Î/¿çÒ³Ê±£©
+1969   1        for (i = 0; i < EVENT_PER_PAGE; i++)
+1970   1        {
+1971   2          uint8_t highlight = (i + 1 == s_selected_line) ? 1 : 0;
+1972   2          Event_Log_Refresh_Line(i + 1, highlight);
+1973   2        }
+1974   1      
+1975   1        s_refresh_flag = 0;
+1976   1      }
+1977          /*
+1978          *********************************************************************************************************
+1979          *   º¯ Êý Ãû: Event_Log_Init
+1980          *   ¹¦ÄÜËµÃ÷: Ê×´Î½øÈëÊÂ¼þ²Ëµ¥³õÊ¼»¯£¨½öµ÷ÓÃ1´Î£©
+1981          *********************************************************************************************************
+1982          */
+1983          static void Event_Log_Init(void)
+1984          {
+1985   1        // 1. ÖØÖÃ×´Ì¬
+1986   1        s_current_page = 1;
+1987   1        s_selected_line = 1;
+1988   1        s_cache_valid = 0;
+1989   1      
+1990   1        // 2. »ñÈ¡×îÐÂÊÂ¼þË÷Òý£¨½öÊ×´Î½øÈëÊ±¶Á1´Î£©
+1991   1        s_latest_event_idx = Event_Log_Get_Latest_Idx();
+1992   1      
+1993   1        // 3. ¼ÓÔØµÚÒ»Ò³£¨×îÐÂ5Ìõ£©»º´æ
+1994   1        Event_Log_Load_Page_Cache();
+1995   1      
+1996   1        // 4. Ê×´ÎÕûÒ³ÏÔÊ¾
+1997   1        Event_Log_Display_Page();
+1998   1      }
+1999          /*
+2000          *********************************************************************************************************
+2001          *   º¯ Êý Ãû: Event_Log_Handle_Key
+2002          *   ¹¦ÄÜËµÃ÷: °´¼ü´¦Àí£¨ºËÐÄÖØ¹¹£º½ö¿çÒ³Ê±¼ÓÔØ»º´æ£©
+2003          *********************************************************************************************************
+2004          */
+2005          static void Event_Log_Handle_Key(uint8_t key_val)
+2006          {
+2007   1        uint8_t need_refresh_line = 0;               // ÊÇ·ñÐèÒªË¢ÐÂÐÐ·´ÏÔ
+2008   1        uint8_t need_reload_cache = 0;               // ÊÇ·ñÐèÒªÖØÐÂ¼ÓÔØ»º´æ£¨¿çÒ³£©
+2009   1        uint8_t old_selected_line = s_selected_line; // ¼ÇÂ¼¾ÉÑ¡ÖÐÐÐ
+2010   1      
+2011   1        switch (key_val)
+2012   1        {
+2013   2        case KEY_0_UP: // ÉÏ¼ü£º001ÉÏ¼ü¡ú100£¨×îºóÒ»Ò³×îºóÒ»ÐÐ£©
+2014   2          if (s_selected_line > 1)
+2015   2          {
+2016   3            // ·ÇµÚÒ»ÐÐ£º½öÇÐ»»ÐÐ£¬²»¿çÒ³
+2017   3            s_selected_line--;
+2018   3            need_refresh_line = 1;
+2019   3          }
+2020   2          else
+2021   2          {
+2022   3            // µÚÒ»ÐÐ£ºÅÐ¶ÏÊÇ·ñÊÇµÚÒ»Ò³
+2023   3            if (s_current_page > 1)
+2024   3            {
+2025   4              s_current_page--;
+2026   4              s_selected_line = EVENT_PER_PAGE;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 34  
+
+2027   4              need_reload_cache = 1; // ¿çÒ³¡úÖØÐÂ¼ÓÔØ»º´æ
+2028   4            }
+2029   3            else
+2030   3            {
+2031   4              // µÚÒ»Ò³µÚÒ»ÐÐ£¨ÐòºÅ001£©£ºÌø×ªµ½×îºóÒ»Ò³×îºóÒ»ÐÐ£¨ÐòºÅ100£©
+2032   4              s_current_page = TOTAL_PAGE_CNT;  // ×îºóÒ»Ò³£¨20Ò³£©
+2033   4              s_selected_line = EVENT_PER_PAGE; // ×îºóÒ»ÐÐ£¨5ÐÐ£©
+2034   4              need_reload_cache = 1;            // ¿çÒ³¡úÖØÐÂ¼ÓÔØ»º´æ
+2035   4            }
+2036   3          }
+2037   2          break;
+2038   2      
+2039   2        case KEY_1_UP: // ÏÂ¼ü£º100ÏÂ¼ü¡ú001£¨µÚÒ»Ò³µÚÒ»ÐÐ£©
+2040   2          if (s_selected_line < EVENT_PER_PAGE)
+2041   2          {
+2042   3            // ·Ç×îºóÒ»ÐÐ£º½öÇÐ»»ÐÐ£¬²»¿çÒ³
+2043   3            s_selected_line++;
+2044   3            need_refresh_line = 1;
+2045   3          }
+2046   2          else
+2047   2          {
+2048   3            // ×îºóÒ»ÐÐ£ºÅÐ¶ÏÊÇ·ñÊÇ×îºóÒ»Ò³
+2049   3            if (s_current_page < TOTAL_PAGE_CNT)
+2050   3            {
+2051   4              s_current_page++;
+2052   4              s_selected_line = 1;
+2053   4              need_reload_cache = 1; // ¿çÒ³¡úÖØÐÂ¼ÓÔØ»º´æ
+2054   4            }
+2055   3            else
+2056   3            {
+2057   4              // ×îºóÒ»Ò³×îºóÒ»ÐÐ£¨ÐòºÅ100£©£ºÌø×ªµ½µÚÒ»Ò³µÚÒ»ÐÐ£¨ÐòºÅ001£©
+2058   4              s_current_page = 1;    // µÚÒ»Ò³
+2059   4              s_selected_line = 1;   // µÚÒ»ÐÐ
+2060   4              need_reload_cache = 1; // ¿çÒ³¡úÖØÐÂ¼ÓÔØ»º´æ
+2061   4            }
+2062   3          }
+2063   2          break;
+2064   2      
+2065   2        case KEY_2_UP: // ×ó¼ü£¨ÉÏÒ»Ò³£©£ºµÚÒ»Ò³×ó¼ü¡ú×îºóÒ»Ò³
+2066   2          if (s_current_page > 1)
+2067   2          {
+2068   3            s_current_page--;
+2069   3            need_reload_cache = 1; // ¿çÒ³¡úÖØÐÂ¼ÓÔØ»º´æ
+2070   3          }
+2071   2          else
+2072   2          {
+2073   3            // µÚÒ»Ò³£ºÌø×ªµ½×îºóÒ»Ò³
+2074   3            s_current_page = TOTAL_PAGE_CNT;
+2075   3            need_reload_cache = 1;
+2076   3          }
+2077   2          break;
+2078   2      
+2079   2        case KEY_3_UP: // ÓÒ¼ü£¨ÏÂÒ»Ò³£©£º×îºóÒ»Ò³ÓÒ¼ü¡úµÚÒ»Ò³
+2080   2          if (s_current_page < TOTAL_PAGE_CNT)
+2081   2          {
+2082   3            s_current_page++;
+2083   3            need_reload_cache = 1; // ¿çÒ³¡úÖØÐÂ¼ÓÔØ»º´æ
+2084   3          }
+2085   2          else
+2086   2          {
+2087   3            // ×îºóÒ»Ò³£ºÌø×ªµ½µÚÒ»Ò³
+2088   3            s_current_page = 1;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 35  
+
+2089   3            need_reload_cache = 1;
+2090   3          }
+2091   2          break;
+2092   2      
+2093   2        case KEY_5_UP: // ·µ»ØÖ÷²Ëµ¥
+2094   2          menu_state.id = MAIN_MENU;
+2095   2          s_cache_valid = 0; // ÖØÖÃ»º´æ±êÖ¾
+2096   2          s_first_enter = 1; // ÏÂ´Î½øÈëÖØÐÂ³õÊ¼»¯
+2097   2          LCD_Clear();
+2098   2          menu_state.switch_temp_flag = 1;
+2099   2          return; // Ö±½Ó·µ»Ø£¬²»´¦ÀíºóÐø
+2100   2      
+2101   2        default:
+2102   2          return;
+2103   2        }
+2104   1      
+2105   1        // 1. ¿çÒ³£ºÖØÐÂ¼ÓÔØ»º´æ+ÕûÒ³Ë¢ÐÂ
+2106   1        if (need_reload_cache)
+2107   1        {
+2108   2          Event_Log_Load_Page_Cache();
+2109   2          Event_Log_Display_Page();
+2110   2        }
+2111   1        // 2. ½öÐÐÇÐ»»£ºË¢ÐÂ¾ÉÐÐ£¨Õý³£ÏÔÊ¾£©+ ÐÂÐÐ£¨·´ÏÔ£©
+2112   1        else if (need_refresh_line)
+2113   1        {
+2114   2          Event_Log_Refresh_Line(old_selected_line, 0); // ¾ÉÐÐÈ¡Ïû·´ÏÔ
+2115   2          Event_Log_Refresh_Line(s_selected_line, 1);   // ÐÂÐÐ·´ÏÔ
+2116   2        }
+2117   1      }
+2118          
+2119          /*
+2120          *********************************************************************************************************
+2121          *   º¯ Êý Ãû: Event_Log
+2122          *   ¹¦ÄÜËµÃ÷: ÊÂ¼þ²Ëµ¥Ö÷Èë¿Ú£¨×îÖÕ°æ£©
+2123          *********************************************************************************************************
+2124          */
+2125          void Event_Log(uint8_t key_val)
+2126          {
+2127   1        // Ê×´Î½øÈë²Ëµ¥£º³õÊ¼»¯£¨½öÖ´ÐÐ1´Î£©
+2128   1      
+2129   1        if (s_first_enter)
+2130   1        {
+2131   2          Event_Log_Init();
+2132   2          s_first_enter = 0;
+2133   2          return;
+2134   2        }
+2135   1      
+2136   1        // ·ÇÊ×´Î£º´¦Àí°´¼ü
+2137   1        if (key_val != KEY_NONE)
+2138   1        { // KEY_NONEÐè¶¨ÒåÎª0£¬¸ù¾ÝÄãµÄ°´¼üÇý¶¯µ÷Õû
+2139   2          Event_Log_Handle_Key(key_val);
+2140   2        }
+2141   1      }
+2142          
+2143          /*********Êý¾ÝÍ³¼Æ²Ëµ¥********/
+2144          void Data_Stat(uint8_t key_val)
+2145          {
+2146   1      
+2147   1        code const char *g_data_stat_titles[6] = {
+2148   1      
+2149   1            "Êý\xFD¾ÝÍ³¼Æ",
+2150   1            "ÈÕÍ¶´ÎÊý\xFD:",
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 36  
+
+2151   1            "ÔÂÍ¶´ÎÊý\xFD:",
+2152   1            "ÈÕÇÐ´ÎÊý\xFD:",
+2153   1            "ÔÂÇÐ´ÎÊý\xFD:",
+2154   1            "´Î",
+2155   1        };
+2156   1      
+2157   1        LCD_DisplayString(84, 0, g_data_stat_titles[0], 16, 0);
+2158   1        LCD_DisplayString(0, 20, g_data_stat_titles[1], 16, 0);
+2159   1        LCD_DisplayString(0, 38, g_data_stat_titles[2], 16, 0);
+2160   1        LCD_DisplayString(0, 56, g_data_stat_titles[3], 16, 0);
+2161   1        LCD_DisplayString(0, 74, g_data_stat_titles[4], 16, 0);
+2162   1      
+2163   1        LCD_DisplayNum(81, 20, g_stat.day_times_on, 16, 5, 0xff, 0, 1);
+2164   1        LCD_DisplayNum(81, 38, g_stat.day_times_on, 16, 5, 0xff, 0, 1);
+2165   1        LCD_DisplayNum(81, 56, g_stat.day_times_on, 16, 5, 0xff, 0, 1);
+2166   1        LCD_DisplayNum(81, 74, g_stat.day_times_on, 16, 5, 0xff, 0, 1);
+2167   1      
+2168   1        LCD_DisplayString(132, 20, g_data_stat_titles[5], 16, 0);
+2169   1        LCD_DisplayString(132, 38, g_data_stat_titles[5], 16, 0);
+2170   1        LCD_DisplayString(132, 56, g_data_stat_titles[5], 16, 0);
+2171   1        LCD_DisplayString(132, 74, g_data_stat_titles[5], 16, 0);
+2172   1      
+2173   1        if (key_val == KEY_5_UP)
+2174   1        {
+2175   2      
+2176   2          menu_state.id = MAIN_MENU;
+2177   2          LCD_Clear();
+2178   2          menu_state.switch_temp_flag = 1;
+2179   2          return;
+2180   2        }
+2181   1      }
+2182          
+2183          /*********ÏµÍ³²ÎÊýÉèÖÃ²Ëµ¥²¿·Ö********/
+2184          
+2185          void Sys_Para_Set(u8 key_val)
+2186          {
+2187   1        static Ratio_Para_Struct var, sys_pt_ct;
+2188   1        static Cap_Ratio_Para_Struct var1, var2, var3, var4, cap_ratio[4];
+2189   1      
+2190   1        code const char *g_systemset_para_titles[9] = {
+2191   1            "ÏµÍ³²ÎÊý\xFD", // 4×Ö·û=7×Ö½Ú + \0=1 ¡ú 8×Ö½Ú
+2192   1            "ÏµÍ³PT",       // 4×Ö·û=5×Ö½Ú + \0=1 ¡ú 6×Ö½Ú
+2193   1            "ÏµÍ³CT",       // 4×Ö·û=5×Ö½Ú + \0=1 ¡ú 6×Ö½Ú
+2194   1            "Ò»Â·CT",       // 4×Ö·û=5×Ö½Ú + \0=1 ¡ú 6×Ö½Ú
+2195   1            "¶þÂ·CT",       // 4×Ö·û=5×Ö½Ú + \0=1 ¡ú 6×Ö½Ú
+2196   1            "Èý\xFDÂ·CT",   // 4×Ö·û=5×Ö½Ú + \0=1 ¡ú 6×Ö½Ú
+2197   1            "ËÄÂ·CT",       // 4×Ö·û=5×Ö½Ú + \0=1 ¡ú 6×Ö½Ú
+2198   1            "±£´æ",         // 2×Ö=4×Ö½Ú + \0=1 ¡ú 5×Ö½Ú
+2199   1            "ÍË³ö",         // 2×Ö=4×Ö½Ú + \0=1 ¡ú 5×Ö½Ú
+2200   1      
+2201   1        };
+2202   1        if (state == 0) // µÚÒ»´Î½øÈë²Ëµ¥£¬ÏµÍ³±äÁ¿¸³Öµµ½ÁÙÊ±±äÁ¿¡£³õÊ¼»¯×ø±ê£¬ä¯ÀÀÄ£Ê½£¬±à¼­×ø±êÎª0xff
+2203   1        {
+2204   2          sys_pt_ct = g_sys_pt_ct;
+2205   2          cap_ratio[0] = g_cap_ratio[0];
+2206   2          cap_ratio[1] = g_cap_ratio[1];
+2207   2          cap_ratio[2] = g_cap_ratio[2];
+2208   2          cap_ratio[3] = g_cap_ratio[3];
+2209   2          var = g_sys_pt_ct;
+2210   2          var1 = g_cap_ratio[0];
+2211   2          var2 = g_cap_ratio[1];
+2212   2          var3 = g_cap_ratio[2];
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 37  
+
+2213   2          var4 = g_cap_ratio[3];
+2214   2          edit_col = 0;
+2215   2          state = 1;
+2216   2          item_id = 1;
+2217   2        }
+2218   1        else if (state == 1)
+2219   1        {
+2220   2          // ä¯ÀÀÄ£Ê½
+2221   2          switch (key_val)
+2222   2          {
+2223   3           case KEY_0_UP:
+2224   3            if(g_cap_num.pro_num==0)
+2225   3            {
+2226   4                if(item_id==1)
+2227   4                   item_id=7;
+2228   4                else if(item_id==7)
+2229   4                   item_id=1;   
+2230   4                if(item_id==2)
+2231   4                   item_id=8;
+2232   4                else if(item_id==8)
+2233   4                   item_id=2;           
+2234   4            }          
+2235   3            if(g_cap_num.pro_num==1)
+2236   3            {
+2237   4                if(item_id==1)
+2238   4                   item_id=7;
+2239   4                else if(item_id==7)
+2240   4                   item_id=3; 
+2241   4                else if(item_id==3)
+2242   4                   item_id=1; 
+2243   4                if(item_id==2)
+2244   4                   item_id=8;
+2245   4                else if(item_id==8)
+2246   4                   item_id=2;         
+2247   4            }
+2248   3            if(g_cap_num.pro_num==2)
+2249   3            {
+2250   4                if(item_id==1)
+2251   4                   item_id=7;
+2252   4                else if(item_id==7)
+2253   4                   item_id=3; 
+2254   4                else if(item_id==3)
+2255   4                   item_id=1; 
+2256   4                if(item_id==2)
+2257   4                   item_id=8;
+2258   4                else if(item_id==8)
+2259   4                   item_id=4; 
+2260   4                else if(item_id==4)
+2261   4                   item_id=2;           
+2262   4            }   
+2263   3            if(g_cap_num.pro_num==3)
+2264   3            {
+2265   4                if(item_id==1)
+2266   4                   item_id=7;
+2267   4                else if(item_id==7)
+2268   4                   item_id=5; 
+2269   4                else if(item_id==5)
+2270   4                   item_id=3; 
+2271   4                else if(item_id==3)
+2272   4                   item_id=1;           
+2273   4                
+2274   4                if(item_id==2)
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 38  
+
+2275   4                   item_id=8;
+2276   4                else if(item_id==8)
+2277   4                   item_id=4; 
+2278   4                else if(item_id==4)
+2279   4                   item_id=2;       
+2280   4            }   
+2281   3            if(g_cap_num.pro_num==4)
+2282   3            {
+2283   4                if(item_id==1)
+2284   4                   item_id=7;
+2285   4                else if(item_id==7)
+2286   4                   item_id=5; 
+2287   4                else if(item_id==5)
+2288   4                   item_id=3; 
+2289   4                else if(item_id==3)
+2290   4                   item_id=1;           
+2291   4                
+2292   4                if(item_id==2)
+2293   4                   item_id=8;
+2294   4                else if(item_id==8)
+2295   4                   item_id=6; 
+2296   4                else if(item_id==6)
+2297   4                   item_id=4; 
+2298   4                else if(item_id==4)
+2299   4                   item_id=2;           
+2300   4            }   
+2301   3            break;
+2302   3          case KEY_1_UP:      
+2303   3            if(g_cap_num.pro_num==0)
+2304   3            {
+2305   4                if(item_id==1)
+2306   4                   item_id=7;
+2307   4                else if(item_id==7)
+2308   4                   item_id=1;   
+2309   4                if(item_id==2)
+2310   4                   item_id=8;
+2311   4                else if(item_id==8)
+2312   4                   item_id=2;           
+2313   4            }   
+2314   3            if(g_cap_num.pro_num==1)
+2315   3            {
+2316   4                if(item_id==1)
+2317   4                   item_id=3;
+2318   4                else if(item_id==3)
+2319   4                   item_id=7; 
+2320   4                else if(item_id==7)
+2321   4                   item_id=1; 
+2322   4      
+2323   4                if(item_id==2)
+2324   4                   item_id=8;
+2325   4                else if(item_id==8)
+2326   4                   item_id=2;         
+2327   4            }
+2328   3            if(g_cap_num.pro_num==2)
+2329   3            {
+2330   4                if(item_id==1)
+2331   4                   item_id=3;
+2332   4                else if(item_id==3)
+2333   4                   item_id=7; 
+2334   4                else if(item_id==7)
+2335   4                   item_id=1; 
+2336   4      
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 39  
+
+2337   4                if(item_id==2)
+2338   4                   item_id=4;
+2339   4                else if(item_id==4)
+2340   4                   item_id=8;
+2341   4                else if(item_id==8)
+2342   4                   item_id=2;         
+2343   4            }   
+2344   3            if(g_cap_num.pro_num==3)
+2345   3            {
+2346   4                if(item_id==1)
+2347   4                   item_id=3;
+2348   4                else if(item_id==3)
+2349   4                   item_id=5; 
+2350   4                else if(item_id==5)
+2351   4                   item_id=7; 
+2352   4                else if(item_id==7)
+2353   4                   item_id=1; 
+2354   4                if(item_id==2)
+2355   4                   item_id=4;
+2356   4                else if(item_id==4)
+2357   4                   item_id=8;
+2358   4                else if(item_id==8)
+2359   4                   item_id=2;           
+2360   4            }   
+2361   3            if(g_cap_num.pro_num==4)
+2362   3            {
+2363   4                if(item_id==1)
+2364   4                   item_id=3;
+2365   4                else if(item_id==3)
+2366   4                   item_id=5; 
+2367   4                else if(item_id==5)
+2368   4                   item_id=7; 
+2369   4                else if(item_id==7)
+2370   4                   item_id=1; 
+2371   4                if(item_id==2)
+2372   4                   item_id=4;
+2373   4                else if(item_id==4)
+2374   4                   item_id=6;
+2375   4                else if(item_id==6)
+2376   4                   item_id=8;
+2377   4                else if(item_id==8)
+2378   4                   item_id=2;       
+2379   4            }       
+2380   3            break;
+2381   3      
+2382   3          case KEY_2_UP:
+2383   3              if(item_id==7)
+2384   3                item_id=8;
+2385   3              else if(item_id==8)
+2386   3                item_id=7;
+2387   3              else 
+2388   3              {   
+2389   4      
+2390   4              if (item_id<=(g_cap_num.pro_num + 2))
+2391   4              item_id--;
+2392   4              if(item_id<1) 
+2393   4               item_id=(g_cap_num.pro_num + 2); 
+2394   4            }
+2395   3      
+2396   3            break;
+2397   3          case KEY_3_UP:
+2398   3              if(item_id==7)
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 40  
+
+2399   3                item_id=8;
+2400   3              else if(item_id==8)
+2401   3                item_id=7;
+2402   3              else 
+2403   3              {       
+2404   4              if (item_id>=1)
+2405   4              item_id++;
+2406   4               if(item_id>(g_cap_num.pro_num + 2))  
+2407   4               item_id=1; 
+2408   4            }
+2409   3      
+2410   3            break;
+2411   3          case KEY_4_UP:
+2412   3            if (item_id <= (g_cap_num.pro_num + 2))
+2413   3            {
+2414   4              state = 2; // ½øÈë±à¼­
+2415   4              edit_col = 0;
+2416   4            }
+2417   3            else if (item_id == 7)
+2418   3            {
+2419   4              if(Set_Ratio_Para(&sys_pt_ct)||Set_Cap_Ratio_Para_Ch(0,&var1)||Set_Cap_Ratio_Para_Ch(0,&var2)||Set
+             -_Cap_Ratio_Para_Ch(0,&var3)||Set_Cap_Ratio_Para_Ch(0,&var4))
+2420   4              {
+2421   5                  g_hard_state.iic_err_times++;
+2422   5              }
+2423   4              else
+2424   4              {
+2425   5                  g_sys_pt_ct = sys_pt_ct;
+2426   5                  g_cap_ratio[0]=cap_ratio[0];
+2427   5                  g_cap_ratio[1]=cap_ratio[1];          
+2428   5                  g_cap_ratio[2]=cap_ratio[2];
+2429   5                  g_cap_ratio[3]=cap_ratio[3];          
+2430   5                  state = 0; // ±£´æ
+2431   5                  menu_state.id = PARAM_SETTING;
+2432   5                  LCD_Clear();
+2433   5                  menu_state.switch_temp_flag = 1;
+2434   5                    return;
+2435   5              }
+2436   4            }
+2437   3            else if (item_id == 8)
+2438   3            {
+2439   4              state = 0; // ÍË³ö£¨²»±£´æ£©
+2440   4              menu_state.id = PARAM_SETTING;
+2441   4              LCD_Clear();
+2442   4              menu_state.switch_temp_flag = 1;
+2443   4              return;
+2444   4            }
+2445   3            break;
+2446   3      
+2447   3          case KEY_5_UP:
+2448   3            state = 0; // ÍË³ö£¨²»±£´æ£©
+2449   3            menu_state.id = PARAM_SETTING;
+2450   3            LCD_Clear();
+2451   3            menu_state.switch_temp_flag = 1;
+2452   3            return;
+2453   3            break;
+2454   3          }
+2455   2      
+2456   2          var = sys_pt_ct;
+2457   2      
+2458   2          var1 = cap_ratio[0];
+2459   2          var2 = cap_ratio[1];
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 41  
+
+2460   2          var3 = cap_ratio[2];
+2461   2          var4 = cap_ratio[3];
+2462   2        }
+2463   1        else if (state == 2) // ²ÎÊý±à¼­
+2464   1        {
+2465   2      
+2466   2          switch (key_val)
+2467   2          {
+2468   3          case KEY_0_UP: // ¼Ó
+2469   3            if (item_id == 1)
+2470   3            {
+2471   4      
+2472   4              adjust_digit_u16(&var.pt_ratio, edit_col, 1, 3);
+2473   4            }
+2474   3            if (item_id == 2)
+2475   3            {
+2476   4              if (edit_col < 4)
+2477   4              {
+2478   5                adjust_digit_u16(&var.ct_ratio, edit_col, 1, 4);
+2479   5              }
+2480   4              else
+2481   4              {
+2482   5                if (var.ct_ratio1 == 1)
+2483   5                  var.ct_ratio1 = 5;
+2484   5                else
+2485   5                  var.ct_ratio1 = 1;
+2486   5              }
+2487   4            }
+2488   3            if (item_id == 3)
+2489   3            {
+2490   4              if (edit_col < 4)
+2491   4              {
+2492   5                adjust_digit_u16(&var1.ct_ratio, edit_col, 1, 4);
+2493   5              }
+2494   4              else
+2495   4              {
+2496   5                if (var1.ct_ratio1 == 1)
+2497   5                  var1.ct_ratio1 = 5;
+2498   5                else
+2499   5                  var1.ct_ratio1 = 1;
+2500   5              }
+2501   4            }
+2502   3            if (item_id == 4)
+2503   3            {
+2504   4              if (edit_col < 4)
+2505   4              {
+2506   5                adjust_digit_u16(&var2.ct_ratio, edit_col, 1, 4);
+2507   5              }
+2508   4              else
+2509   4              {
+2510   5                if (var2.ct_ratio1 == 1)
+2511   5                  var2.ct_ratio1 = 5;
+2512   5                else
+2513   5                  var2.ct_ratio1 = 1;
+2514   5              }
+2515   4            }
+2516   3            if (item_id == 5)
+2517   3            {
+2518   4              if (edit_col < 4)
+2519   4              {
+2520   5                adjust_digit_u16(&var3.ct_ratio, edit_col, 1, 4);
+2521   5              }
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 42  
+
+2522   4              else
+2523   4              {
+2524   5                if (var3.ct_ratio1 == 1)
+2525   5                  var3.ct_ratio1 = 5;
+2526   5                else
+2527   5                  var3.ct_ratio1 = 1;
+2528   5              }
+2529   4            }
+2530   3            if (item_id == 6)
+2531   3            {
+2532   4              if (edit_col < 4)
+2533   4              {
+2534   5                adjust_digit_u16(&var4.ct_ratio, edit_col, 1, 4);
+2535   5              }
+2536   4              else
+2537   4              {
+2538   5                if (var4.ct_ratio1 == 1)
+2539   5                  var4.ct_ratio1 = 5;
+2540   5                else
+2541   5                  var4.ct_ratio1 = 1;
+2542   5              }
+2543   4            }
+2544   3      
+2545   3            break;
+2546   3          case KEY_1_UP: // ¼õ
+2547   3            if (item_id == 1)
+2548   3            {
+2549   4              adjust_digit_u16(&var.pt_ratio, edit_col, -1, 3);
+2550   4            }
+2551   3            if (item_id == 2)
+2552   3            {
+2553   4              if (edit_col < 4)
+2554   4              {
+2555   5                adjust_digit_u16(&var.ct_ratio, edit_col, -1, 4);
+2556   5              }
+2557   4              else
+2558   4              {
+2559   5                if (var.ct_ratio1 == 1)
+2560   5                  var.ct_ratio1 = 5;
+2561   5                else
+2562   5                  var.ct_ratio1 = 1;
+2563   5              }
+2564   4            }
+2565   3            if (item_id == 3)
+2566   3            {
+2567   4              if (edit_col < 4)
+2568   4              {
+2569   5                adjust_digit_u16(&var1.ct_ratio, edit_col, -1, 4);
+2570   5              }
+2571   4              else
+2572   4              {
+2573   5                if (var1.ct_ratio1 == 1)
+2574   5                  var1.ct_ratio1 = 5;
+2575   5                else
+2576   5                  var1.ct_ratio1 = 1;
+2577   5              }
+2578   4            }
+2579   3            if (item_id == 4)
+2580   3            {
+2581   4              if (edit_col < 4)
+2582   4              {
+2583   5                adjust_digit_u16(&var2.ct_ratio, edit_col, -1, 4);
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 43  
+
+2584   5              }
+2585   4              else
+2586   4              {
+2587   5                if (var2.ct_ratio1 == 1)
+2588   5                  var2.ct_ratio1 = 5;
+2589   5                else
+2590   5                  var2.ct_ratio1 = 1;
+2591   5              }
+2592   4            }
+2593   3            if (item_id == 5)
+2594   3            {
+2595   4              if (edit_col < 4)
+2596   4              {
+2597   5                adjust_digit_u16(&var3.ct_ratio, edit_col, -1, 4);
+2598   5              }
+2599   4              else
+2600   4              {
+2601   5                if (var3.ct_ratio1 == 1)
+2602   5                  var3.ct_ratio1 = 5;
+2603   5                else
+2604   5                  var3.ct_ratio1 = 1;
+2605   5              }
+2606   4            }
+2607   3            if (item_id == 6)
+2608   3            {
+2609   4              if (edit_col < 4)
+2610   4              {
+2611   5                adjust_digit_u16(&var4.ct_ratio, edit_col, -1, 4);
+2612   5              }
+2613   4              else
+2614   4              {
+2615   5                if (var4.ct_ratio1 == 1)
+2616   5                  var4.ct_ratio1 = 5;
+2617   5                else
+2618   5                  var4.ct_ratio1 = 1;
+2619   5              }
+2620   4            }
+2621   3      
+2622   3            break;
+2623   3          case KEY_2_UP:
+2624   3            edit_col--;
+2625   3            if (item_id == 1)
+2626   3            {
+2627   4              if (edit_col < 0)
+2628   4                edit_col = 2;
+2629   4            }
+2630   3            if ((item_id >= 2) && (item_id < 7))
+2631   3            {
+2632   4              if (edit_col < 0)
+2633   4              {
+2634   5                edit_col = 4;
+2635   5              }
+2636   4            }
+2637   3      
+2638   3            break;
+2639   3          case KEY_3_UP:
+2640   3            edit_col++;
+2641   3            if (item_id == 1)
+2642   3            {
+2643   4              if (edit_col > 2)
+2644   4                edit_col = 0;
+2645   4            }
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 44  
+
+2646   3            if ((item_id >= 2) && (item_id < 7))
+2647   3            {
+2648   4              if (edit_col > 4)
+2649   4              {
+2650   5                edit_col = 0;
+2651   5              }
+2652   4            }
+2653   3            break;
+2654   3          case KEY_4_UP:
+2655   3      
+2656   3            if (item_id == 1)
+2657   3            {
+2658   4              sys_pt_ct.pt_ratio = var.pt_ratio;
+2659   4            }
+2660   3            if (item_id == 2)
+2661   3            {
+2662   4              sys_pt_ct.ct_ratio = var.ct_ratio;
+2663   4              sys_pt_ct.ct_ratio1 = var.ct_ratio1;
+2664   4            }
+2665   3            if (item_id == 3)
+2666   3            {
+2667   4              cap_ratio[0].ct_ratio = var1.ct_ratio;
+2668   4              cap_ratio[0].ct_ratio1 = var1.ct_ratio1;
+2669   4            }
+2670   3            if (item_id == 4)
+2671   3            {
+2672   4              cap_ratio[1].ct_ratio = var2.ct_ratio;
+2673   4              cap_ratio[1].ct_ratio1 = var2.ct_ratio1;
+2674   4            }
+2675   3            if (item_id == 5)
+2676   3            {
+2677   4              cap_ratio[2].ct_ratio = var3.ct_ratio;
+2678   4              cap_ratio[2].ct_ratio1 = var3.ct_ratio1;
+2679   4            }
+2680   3            if (item_id == 6)
+2681   3            {
+2682   4              cap_ratio[3].ct_ratio = var4.ct_ratio;
+2683   4              cap_ratio[3].ct_ratio1 = var4.ct_ratio1;
+2684   4            }
+2685   3      
+2686   3            if (item_id <= 6)
+2687   3            {
+2688   4              state = 1;
+2689   4            }
+2690   3            edit_col = 0xff;
+2691   3            break;
+2692   3          case KEY_5_UP:
+2693   3      
+2694   3            if (item_id == 1)
+2695   3            {
+2696   4              var.pt_ratio=sys_pt_ct.pt_ratio ;
+2697   4            }
+2698   3            if (item_id == 2)
+2699   3            {
+2700   4               var.ct_ratio=sys_pt_ct.ct_ratio ;
+2701   4               var.ct_ratio1=sys_pt_ct.ct_ratio1 ;
+2702   4            }
+2703   3            if (item_id == 3)
+2704   3            {
+2705   4              var1.ct_ratio=cap_ratio[0].ct_ratio  ;
+2706   4              var1.ct_ratio1=cap_ratio[0].ct_ratio1 ;
+2707   4            }
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 45  
+
+2708   3            if (item_id == 4)
+2709   3            {
+2710   4              var2.ct_ratio=cap_ratio[1].ct_ratio;
+2711   4              var2.ct_ratio1=cap_ratio[1].ct_ratio1  ;
+2712   4            }
+2713   3            if (item_id == 5)
+2714   3            {
+2715   4              var3.ct_ratio=cap_ratio[2].ct_ratio  ;
+2716   4              var3.ct_ratio1=cap_ratio[2].ct_ratio1 ;
+2717   4            }
+2718   3            if (item_id == 6)
+2719   3            {
+2720   4              var4.ct_ratio=cap_ratio[3].ct_ratio ;
+2721   4              var4.ct_ratio1=cap_ratio[3].ct_ratio1 ;
+2722   4            }     
+2723   3          
+2724   3          
+2725   3            if (item_id <= 6)
+2726   3            {
+2727   4              state = 1;
+2728   4            }
+2729   3            edit_col = 0xff;
+2730   3            break;
+2731   3          }
+2732   2        }
+2733   1      
+2734   1        // ÏÔÊ¾²¿·Ö
+2735   1      
+2736   1        LCD_DisplayString(LCD_MID, 0, g_systemset_para_titles[0], 16, 0);
+2737   1      
+2738   1        LCD_DisplayChinese(0, 20, g_systemset_para_titles[1], 16, ((item_id == 1) && (state == 1)) ? 1 : 0);
+2739   1        LCD_DisplayString(48, 20, "#", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2740   1        LCD_DisplayNum(54, 20, var.pt_ratio, 16, 3, ((item_id == 1) && (state == 2)) ? edit_col : 0xff, 0, 1);
+2741   1      
+2742   1        LCD_DisplayChinese(123, 20, g_systemset_para_titles[2], 16, ((item_id == 2) && (state == 1)) ? 1 : 0);
+2743   1        LCD_DisplayString(171, 20, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2744   1      
+2745   1        LCD_DisplayNum(177, 20, var.ct_ratio, 16, 4, ((item_id == 2) && (edit_col < 4) && (state == 2)) ? edit_c
+             -ol : 0xff, 0, 1);
+2746   1      
+2747   1        LCD_DisplayString(213, 20, "/", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2748   1      
+2749   1        LCD_DisplayNum(222, 20, var.ct_ratio1, 16, 1, ((item_id == 2) && (edit_col == 4) && (state == 2)) ? 0 : 
+             -0xff, 0, 1);
+2750   1        LCD_DisplayString(231, 20, "A", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2751   1      
+2752   1        if (g_cap_num.pro_num > 0)
+2753   1        {
+2754   2          LCD_DisplayChinese(0, 40, g_systemset_para_titles[3], 16, ((item_id == 3) && (state == 1)) ? 1 : 0);
+2755   2          LCD_DisplayString(48, 40, "#", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2756   2          LCD_DisplayNum(54, 40, var1.ct_ratio, 16, 4, ((item_id == 3) && (edit_col < 4) && (state == 2)) ? edit
+             -_col : 0xff, 0, 1);
+2757   2      
+2758   2          LCD_DisplayString(90, 40, "/", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2759   2      
+2760   2          LCD_DisplayNum(99, 40, var1.ct_ratio1, 16, 1, ((item_id == 3) && (edit_col == 4) && (state == 2)) ? 0 
+             -: 0xff, 0, 1);
+2761   2          LCD_DisplayString(108, 40, "A", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2762   2        }
+2763   1        if (g_cap_num.pro_num > 1)
+2764   1        {
+2765   2          LCD_DisplayChinese(123, 40, g_systemset_para_titles[4], 16, ((item_id == 4) && (state == 1)) ? 1 : 0);
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 46  
+
+2766   2          LCD_DisplayString(171, 40, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2767   2          LCD_DisplayNum(177, 40, var2.ct_ratio, 16, 4, ((item_id == 4) && (edit_col < 4) && (state == 2)) ? edi
+             -t_col : 0xff, 0, 1);
+2768   2      
+2769   2          LCD_DisplayString(213, 40, "/", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2770   2      
+2771   2          LCD_DisplayNum(222, 40, var2.ct_ratio1, 16, 1, ((item_id == 4) && (edit_col == 4) && (state == 2)) ? 0
+             - : 0xff, 0, 1);
+2772   2          LCD_DisplayString(231, 40, "A", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2773   2        }
+2774   1        if (g_cap_num.pro_num > 2)
+2775   1        {
+2776   2          LCD_DisplayChinese(0, 60, g_systemset_para_titles[5], 16, ((item_id == 5) && (state == 1)) ? 1 : 0);
+2777   2          LCD_DisplayString(48, 60, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2778   2          LCD_DisplayNum(54, 60, var3.ct_ratio, 16, 4, ((item_id == 5) && (edit_col < 4) && (state == 2)) ? edit
+             -_col : 0xff, 0, 1);
+2779   2      
+2780   2          LCD_DisplayString(90, 60, "/", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2781   2      
+2782   2          LCD_DisplayNum(99, 60, var3.ct_ratio1, 16, 1, ((item_id == 5) && (edit_col == 4) && (state == 2)) ? 0 
+             -: 0xff, 0, 1);
+2783   2          LCD_DisplayString(108, 60, "A", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2784   2        }
+2785   1        if (g_cap_num.pro_num > 3)
+2786   1        {
+2787   2          LCD_DisplayChinese(123, 60, g_systemset_para_titles[6], 16, ((item_id == 6) && (state == 1)) ? 1 : 0);
+2788   2          LCD_DisplayString(171, 60, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2789   2          LCD_DisplayNum(177, 60, var4.ct_ratio, 16, 4, ((item_id == 6) && (edit_col < 4) && (state == 2)) ? edi
+             -t_col : 0xff, 0, 1);
+2790   2      
+2791   2          LCD_DisplayString(213, 60, "/", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2792   2      
+2793   2          LCD_DisplayNum(222, 60, var4.ct_ratio1, 16, 1, ((item_id == 6) && (edit_col == 4) && (state == 2)) ? 0
+             - : 0xff, 0, 1);
+2794   2          LCD_DisplayString(231, 60, "A", 16, 0); // Ã°ºÅ²»·´ÏÔ
+2795   2        }
+2796   1      
+2797   1        LCD_DisplayString(0, 112, g_systemset_para_titles[7], 16, ((item_id == 7) && (state == 1)) ? 1 : 0);
+2798   1        LCD_DisplayString(204, 112, g_systemset_para_titles[8], 16, ((item_id == 8) && (state == 1)) ? 1 : 0);
+2799   1      }
+2800          
+2801          /*********µçÈÝ²ÎÊýÉèÖÃ²Ëµ¥²¿·Ö********/
+2802          void Cap_Para_Set(u8 key_val)
+2803          {            // ±êÌâÆðÊ¼ÁÐ
+2804   1        u8 y=20 ; // ÐÐ¼ä¸ô
+2805   1        u8 j=1;
+2806   1        u8 flag=0;
+2807   1        static Cap_Para_Struct cap[4], var[4];
+2808   1        code const char *g_cap_para_titles[9] = {
+2809   1      
+2810   1            "µçÈÝ²ÎÊý\xFD",
+2811   1            "C1",
+2812   1            "C2",
+2813   1            "C3",
+2814   1            "C4",
+2815   1            "±£´æ",
+2816   1            "ÍË³ö",
+2817   1            "Í¶Èë",
+2818   1            "ÍË³ö",
+2819   1        };
+2820   1      
+2821   1        if (state == 0) // µÚÒ»´Î½øÈë²Ëµ¥£¬ÏµÍ³±äÁ¿¸³Öµµ½ÁÙÊ±±äÁ¿¡£³õÊ¼»¯×ø±ê£¬ä¯ÀÀÄ£Ê½£¬±à¼­×ø±êÎª0xff
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 47  
+
+2822   1        {
+2823   2      
+2824   2          cap[0] = g_cap[0];
+2825   2          cap[1] = g_cap[1];
+2826   2          cap[2] = g_cap[2];
+2827   2          cap[3] = g_cap[3];
+2828   2          var[0] = g_cap[0];
+2829   2          var[1] = g_cap[1];
+2830   2          var[2] = g_cap[2];
+2831   2          var[3] = g_cap[3];
+2832   2          edit_col = 0;
+2833   2          state = 1;
+2834   2          item_id = 1;
+2835   2        }
+2836   1        else if (state == 1)
+2837   1        {
+2838   2          // ä¯ÀÀÄ£Ê½
+2839   2          switch (key_val)
+2840   2          {
+2841   3          case KEY_0_UP:
+2842   3            if(item_id<6)
+2843   3            {
+2844   4            item_id--;
+2845   4            if (item_id < 1)
+2846   4              item_id = 5;
+2847   4            else if(item_id >g_cap_num.cap_num)
+2848   4              item_id=g_cap_num.cap_num;
+2849   4          } 
+2850   3            break;
+2851   3          case KEY_1_UP:
+2852   3            if(item_id<6)
+2853   3            {
+2854   4            item_id++;
+2855   4            if ((item_id > (g_cap_num.cap_num))&&(item_id<6))
+2856   4              item_id = 5;
+2857   4            else if(item_id==6)
+2858   4              item_id=1;
+2859   4          }
+2860   3            break;
+2861   3          case KEY_2_UP:
+2862   3          case KEY_3_UP:
+2863   3            if (item_id == 5)
+2864   3              item_id=6;
+2865   3            else if (item_id == 6)
+2866   3              item_id=5;
+2867   3            break;
+2868   3      
+2869   3          case KEY_4_UP:
+2870   3      
+2871   3            if (item_id <= 4)
+2872   3            {
+2873   4              state = 2;
+2874   4            }
+2875   3            else if (item_id == 5)
+2876   3            {
+2877   4              
+2878   4              if((Cap_CheckAllEnabledValueEqual(&cap,g_cap_num.cap_num)==0)&&(g_control_para.type==4))
+2879   4                 flag=1;
+2880   4              if(flag==0)
+2881   4              {
+2882   5              for(j=0;j<g_cap_num.cap_num;j++)
+2883   5              {
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 48  
+
+2884   6                if(Set_Cap_Para_Ch(j, &cap[j]))
+2885   6                {
+2886   7                    g_hard_state.iic_err_times++;
+2887   7                    break;
+2888   7                }
+2889   6                    
+2890   6              }
+2891   5               if(j==g_cap_num.cap_num)
+2892   5              {
+2893   6                g_cap[0] = cap[0];
+2894   6                g_cap[1] = cap[1];
+2895   6                g_cap[2] = cap[2];
+2896   6                g_cap[3] = cap[3];
+2897   6                LCD_Clear();
+2898   6                menu_state.switch_temp_flag = 1;        
+2899   6                state = 0; // ±£´æ
+2900   6                menu_state.id = PARAM_SETTING;  
+2901   6              return;       
+2902   6              }
+2903   5            }
+2904   4            }
+2905   3            else if (item_id == 6)
+2906   3            {
+2907   4              state = 0; // ÍË³ö£¨²»±£´æ£©
+2908   4              menu_state.id = PARAM_SETTING;
+2909   4              LCD_Clear();
+2910   4              menu_state.switch_temp_flag = 1;
+2911   4              return;
+2912   4            }
+2913   3            break;
+2914   3      
+2915   3          case KEY_5_UP:
+2916   3            state = 0; // ÍË³ö£¨²»±£´æ£©
+2917   3            menu_state.id = PARAM_SETTING;
+2918   3            LCD_Clear();
+2919   3            menu_state.switch_temp_flag = 1;
+2920   3            return;
+2921   3            break;
+2922   3          }
+2923   2          edit_col = 0;
+2924   2      
+2925   2          var[0] = cap[0];
+2926   2          var[1] = cap[1];
+2927   2          var[2] = cap[2];
+2928   2          var[3] = cap[3];
+2929   2        }
+2930   1        else if (state == 2) // ²ÎÊý±à¼­
+2931   1        {
+2932   2          switch (key_val)
+2933   2            
+2934   2          {
+2935   3      
+2936   3          case KEY_0_UP: // ¼Ó
+2937   3      
+2938   3          case KEY_1_UP: // ¼õ
+2939   3            if (item_id <= g_cap_num.cap_num)
+2940   3            {
+2941   4              if (edit_col < 4)
+2942   4                adjust_digit_u16(&var[item_id - 1].value, edit_col, key_val == KEY_0_UP ? 1 : -1, 4);
+2943   4              else
+2944   4              {
+2945   5                if (var[item_id - 1].onf == 0)
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 49  
+
+2946   5                  var[item_id - 1].onf = 1;
+2947   5                else
+2948   5                  var[item_id - 1].onf = 0;
+2949   5              }
+2950   4            }
+2951   3          break;
+2952   3        case KEY_2_UP:
+2953   3          edit_col--;
+2954   3          if (edit_col < 0)
+2955   3          {
+2956   4            edit_col = 4;
+2957   4          }
+2958   3      
+2959   3          break;
+2960   3        case KEY_3_UP:
+2961   3          edit_col++;
+2962   3      
+2963   3          if (edit_col > 4)
+2964   3          {
+2965   4            edit_col = 0;
+2966   4          }
+2967   3      
+2968   3          break;
+2969   3        case KEY_4_UP:
+2970   3      
+2971   3          switch (item_id)
+2972   3          {
+2973   4          case 1:
+2974   4            cap[0].value = var[0].value;
+2975   4            cap[0].onf = var[0].onf;
+2976   4            break;
+2977   4          case 2:
+2978   4            cap[1].value = var[1].value;
+2979   4            cap[1].onf = var[1].onf;
+2980   4            break;
+2981   4          case 3:
+2982   4            cap[2].value = var[2].value;
+2983   4            cap[2].onf = var[2].onf;
+2984   4            break;
+2985   4          case 4:
+2986   4            cap[3].value = var[3].value;
+2987   4            cap[3].onf = var[3].onf;
+2988   4            break;
+2989   4          }
+2990   3          state = 1;
+2991   3          edit_col = 0;
+2992   3          break;
+2993   3        case KEY_5_UP:
+2994   3          switch (item_id)
+2995   3          {
+2996   4          case 1:
+2997   4            var[0] = cap[0];
+2998   4            break;
+2999   4          case 2:
+3000   4            var[1]= cap[1];
+3001   4            break;
+3002   4          case 3:
+3003   4            var[2]=cap[2];
+3004   4            break;
+3005   4          case 4:
+3006   4            var[3]=cap[3];
+3007   4            break;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 50  
+
+3008   4          }
+3009   3          state = 1;
+3010   3          edit_col = 0;
+3011   3          break;
+3012   3        }
+3013   2      }
+3014   1      
+3015   1      // ÏÔÊ¾²¿·Ö
+3016   1      LCD_DisplayString(81, 0, g_cap_para_titles[0], 16, 0);
+3017   1      for (j = 1; j < g_cap_num.cap_num+1; j++)
+3018   1      {
+3019   2        LCD_DisplayString(0, y, g_cap_para_titles[j], 16, ((item_id == j) && (state == 1)) ? 1 : 0);
+3020   2        LCD_DisplayString(18, y, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3021   2        LCD_DisplayNum(27, y, var[j-1].value, 16, 4, ((item_id == j) && (state == 2) && (edit_col < 4)) ? edit_c
+             -ol : 0xff, 0, 1);
+3022   2        LCD_DisplayString(66, y, "KVar", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3023   2        LCD_DisplayString(117, y, (var[j-1].onf == 1) ? g_cap_para_titles[7] : g_cap_para_titles[8], 16, ((item_
+             -id == j) && (state == 2) && (edit_col == 4)) ? 1 : 0);
+3024   2        y=y+20;
+3025   2      }
+3026   1      
+3027   1      LCD_DisplayString(0, 112, g_cap_para_titles[5], 16, ((item_id == 5) && (state == 1)) ? 1 : 0);
+3028   1      LCD_DisplayString(204, 112, g_cap_para_titles[6], 16, ((item_id == 6) && (state == 1)) ? 1 : 0);
+3029   1      }
+3030          
+3031          
+3032          
+3033          /*********¿ØÖÆ²ÎÊýÉèÖÃ²Ëµ¥²¿·Ö********/
+3034          
+3035          void Control_Para_Set(u8 key_val)
+3036          {
+3037   1        static Control_Para_Struct control_para, var;
+3038   1        uint8_t flag=0;
+3039   1        code const char *g_control_para_titles[17] = {
+3040   1      
+3041   1            "¿ØÖÆ²ÎÊý\xFD",
+3042   1      
+3043   1            "µçÑ¹ÉÏÏÞ",
+3044   1            "Í¶ÇÐ·½°¸",
+3045   1            "µçÑ¹ÏÂÏÞ",
+3046   1            "Í¶ÇÐÏµÊý\xFD",
+3047   1            "COS}ÉÏÏÞ",
+3048   1            "Í¶ÈëÑÓÊ±",
+3049   1            "COS}ÏÂÏÞ",
+3050   1            "ÇÐ³ý\xFDÑÓÊ±",
+3051   1            "ÏÞÍ¶´ÎÊý\xFD",
+3052   1            "Á¬¶¯¼ä¸ô",
+3053   1      
+3054   1            "²îÈÝ",
+3055   1            "×éºÏ",
+3056   1            "ÂË²¨",
+3057   1            "µÈÈÝ",
+3058   1            "±£´æ",
+3059   1            "ÍË³ö",
+3060   1        };
+3061   1        if (state == 0) // µÚÒ»´Î½øÈë²Ëµ¥£¬ÏµÍ³±äÁ¿¸³Öµµ½ÁÙÊ±±äÁ¿¡£³õÊ¼»¯×ø±ê£¬ä¯ÀÀÄ£Ê½£¬±à¼­×ø±êÎª0xff
+3062   1        {
+3063   2          control_para = g_control_para;
+3064   2          var = g_control_para;
+3065   2          edit_col = 0;
+3066   2          state = 1;
+3067   2          item_id = 1;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 51  
+
+3068   2        }
+3069   1        else if (state == 1)
+3070   1        {
+3071   2          // ä¯ÀÀÄ£Ê½
+3072   2          switch (key_val)
+3073   2          {
+3074   3          case KEY_0_UP: // KEY0=ÉÏ¼ü£ºÍ¬ÁÐÏòÉÏÑ­»·£¨Ô­Âß¼­²»±ä£©
+3075   3            item_id = item_id - 2;
+3076   3            if (item_id <= 0)
+3077   3              item_id = item_id + 12;
+3078   3            break;
+3079   3      
+3080   3          case KEY_1_UP: // KEY1=ÏÂ¼ü£ºÍ¬ÁÐÏòÏÂÑ­»·£¨Ô­Âß¼­²»±ä£©
+3081   3            item_id = item_id + 2;
+3082   3            if (item_id > 12)
+3083   3              item_id = item_id - 12;
+3084   3            break;
+3085   3      
+3086   3          case KEY_2_UP: // KEY2=×ó¼ü£ºZÐÍÑ­»·µÄ¡¸ÉÏÒ»¸ö¡¹£¨1¡ú7¡¢12¡ú1¡¢2¡ú12...£©
+3087   3            item_id = item_id - 1;
+3088   3            if (item_id <= 0)
+3089   3              item_id = item_id + 12;
+3090   3            break;
+3091   3      
+3092   3          case KEY_3_UP: // KEY3=ÓÒ¼ü£ºZÐÍÑ­»·µÄ¡¸ÏÂÒ»¸ö¡¹£¨1¡ú12¡¢12¡ú2¡¢...7¡ú1£©
+3093   3          {
+3094   4            item_id = item_id + 1;
+3095   4            if (item_id > 12)
+3096   4              item_id = item_id - 12;
+3097   4            break;
+3098   4          case KEY_4_UP:
+3099   4            if (item_id == 11)
+3100   4            {
+3101   5              if (control_para.vol_up <= control_para.vol_down)
+3102   5                flag=1;
+3103   5      
+3104   5              if ((control_para.cos_up_f!=0)&&(control_para.cos_up <= control_para.cos_down))
+3105   5                flag=1;
+3106   5                
+3107   5              
+3108   5              if((Cap_CheckAllEnabledValueEqual(&g_cap,g_cap_num.cap_num)==0)&&(control_para.type==4))
+3109   5                flag=1;     
+3110   5              if(flag==0)
+3111   5              {
+3112   6                if(Set_Control_Para(&control_para))
+3113   6                {
+3114   7                  g_hard_state.iic_err_times++;
+3115   7                }
+3116   6                else
+3117   6                {
+3118   7                g_control_para = control_para;
+3119   7                state = 0;
+3120   7                menu_state.id = PARAM_SETTING;
+3121   7                LCD_Clear();
+3122   7                menu_state.switch_temp_flag = 1;
+3123   7                return;
+3124   7                }
+3125   6              }
+3126   5            }
+3127   4            else if (item_id == 12)
+3128   4            {
+3129   5              state = 0;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 52  
+
+3130   5              menu_state.id = PARAM_SETTING;
+3131   5              LCD_Clear();
+3132   5              menu_state.switch_temp_flag = 1;
+3133   5              return;
+3134   5            }
+3135   4            else
+3136   4            {
+3137   5      
+3138   5              state = 2; // ½øÈë±à¼­
+3139   5              edit_col = 0;
+3140   5            }
+3141   4          }
+3142   3          break;
+3143   3      
+3144   3          case KEY_5_UP:
+3145   3            state = 0;
+3146   3            menu_state.id = PARAM_SETTING;
+3147   3            LCD_Clear();
+3148   3            menu_state.switch_temp_flag = 1;
+3149   3            return;
+3150   3            break;
+3151   3          }
+3152   2          var = control_para;
+3153   2        }
+3154   1        else if (state == 2) // ²ÎÊý±à¼­
+3155   1        {
+3156   2          switch (key_val)
+3157   2          {
+3158   3          case KEY_0_UP: // ¼Ó
+3159   3      
+3160   3          case KEY_1_UP: // ¼õ
+3161   3            if (item_id == 1)
+3162   3            {
+3163   4              adjust_digit_u16(&var.vol_up, edit_col, key_val == KEY_0_UP ? 1 : -1, 3); //
+3164   4            }
+3165   3            if (item_id == 2)
+3166   3            {
+3167   4              if (key_val == KEY_0_UP)
+3168   4              {
+3169   5                var.type++;
+3170   5                if (var.type > 4)
+3171   5                  var.type = 1;
+3172   5                ; //
+3173   5              }
+3174   4              if (key_val == KEY_1_UP)
+3175   4              {
+3176   5                var.type--;
+3177   5                if (var.type < 1)
+3178   5                  var.type = 4; //
+3179   5              }
+3180   4            }
+3181   3            if (item_id == 3)
+3182   3            {
+3183   4              adjust_digit_u16(&var.vol_down, edit_col, key_val == KEY_0_UP ? 1 : -1, 3); //
+3184   4            }
+3185   3            if (item_id == 4)
+3186   3            {
+3187   4              adjust_digit_u81(&var.factor, edit_col, key_val == KEY_0_UP ? 1 : -1, 3); //
+3188   4            }
+3189   3            if (item_id == 5)
+3190   3            {
+3191   4              if (edit_col == 0)
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 53  
+
+3192   4              {
+3193   5                if (var.cos_up_f)
+3194   5                  var.cos_up_f = 0;
+3195   5                else
+3196   5                  var.cos_up_f = 1;
+3197   5              }
+3198   4              else
+3199   4              {
+3200   5                adjust_digit_u81(&var.cos_up, edit_col-1, key_val == KEY_0_UP ? 1 : -1, 3); //
+3201   5              }
+3202   4            }
+3203   3            if (item_id == 6)
+3204   3            {
+3205   4              adjust_digit_u16(&var.delay_time_on, edit_col, key_val == KEY_0_UP ? 1 : -1, 3); //
+3206   4            }
+3207   3            if (item_id == 7)
+3208   3            {
+3209   4              adjust_digit_u8(&var.cos_down, edit_col, key_val == KEY_0_UP ? 1 : -1, 2); //
+3210   4            }
+3211   3            if (item_id == 8)
+3212   3            {
+3213   4              adjust_digit_u16(&var.delay_time_off, edit_col, key_val == KEY_0_UP ? 1 : -1, 3); //
+3214   4            }
+3215   3            if (item_id == 9)
+3216   3            {
+3217   4              adjust_digit_u16(&var.times, edit_col, key_val == KEY_0_UP ? 1 : -1, 3); //
+3218   4            }
+3219   3            if (item_id == 10)
+3220   3            {
+3221   4              adjust_digit_u8(&var.time_interval, edit_col, key_val == KEY_0_UP ? 1 : -1, 2); //
+3222   4            }
+3223   3            break;
+3224   3          case KEY_2_UP:
+3225   3            edit_col--;
+3226   3            if ((item_id == 1) || (item_id == 3) || (item_id == 9) || (item_id == 4) || (item_id == 6) || (item_
+             -id == 8))
+3227   3            {
+3228   4              if (edit_col < 0)
+3229   4                edit_col = 2;
+3230   4            }
+3231   3            if (item_id == 5)
+3232   3            {
+3233   4              if (edit_col < 0)
+3234   4                edit_col = 3;
+3235   4            }
+3236   3            if ((item_id == 7) || (item_id == 10))
+3237   3            {
+3238   4              if (edit_col < 0)
+3239   4                edit_col = 1;
+3240   4            }
+3241   3            break;
+3242   3          case KEY_3_UP:
+3243   3            edit_col++;
+3244   3            if ((item_id == 1) || (item_id == 3) || (item_id == 9) || (item_id == 4) || (item_id == 6) || (item_
+             -id == 8))
+3245   3            {
+3246   4              if (edit_col > 2)
+3247   4                edit_col = 0;
+3248   4            }
+3249   3            if (item_id == 5)
+3250   3            {
+3251   4              if (edit_col > 3)
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 54  
+
+3252   4                edit_col = 0;
+3253   4            }
+3254   3            if ((item_id == 7) || (item_id == 10))
+3255   3            {
+3256   4              if (edit_col > 1)
+3257   4                edit_col = 0;
+3258   4            }
+3259   3            break;
+3260   3          case KEY_4_UP:
+3261   3      
+3262   3            if (item_id == 5)
+3263   3            {
+3264   4              if ((var.cos_up != 0)&&(var.cos_up<=100))
+3265   4              {
+3266   5      
+3267   5                control_para.cos_up_f = var.cos_up_f;
+3268   5                control_para.cos_up = var.cos_up;
+3269   5                state = 1;
+3270   5                edit_col = 0;
+3271   5              }
+3272   4            }
+3273   3            else if (item_id == 4)
+3274   3            {
+3275   4              if ((var.factor >= 50) && (var.factor <= 150))
+3276   4              {
+3277   5                state = 1;
+3278   5                control_para.factor = var.factor;
+3279   5                edit_col = 0;
+3280   5              }
+3281   4            }
+3282   3            else if (item_id == 7)
+3283   3            {
+3284   4              if ((var.cos_down > 0))
+3285   4              {
+3286   5                state = 1;
+3287   5                control_para.cos_down = var.cos_down;
+3288   5                edit_col = 0;
+3289   5              }
+3290   4            }     
+3291   3            else
+3292   3            {
+3293   4              switch (item_id)
+3294   4              {
+3295   5              case 1:
+3296   5                control_para.vol_up = var.vol_up;
+3297   5                break;
+3298   5              case 2:
+3299   5      
+3300   5                control_para.type = var.type;
+3301   5                break;
+3302   5              case 3:
+3303   5                control_para.vol_down = var.vol_down;
+3304   5                break;
+3305   5              case 6:
+3306   5                control_para.delay_time_on = var.delay_time_on;
+3307   5                break;
+3308   5              case 8:
+3309   5                control_para.delay_time_off = var.delay_time_off;
+3310   5                break;
+3311   5              case 9:
+3312   5                control_para.times = var.times;
+3313   5                break;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 55  
+
+3314   5              case 10:
+3315   5                control_para.time_interval = var.time_interval;
+3316   5                break;
+3317   5              }
+3318   4      
+3319   4              state = 1;
+3320   4              edit_col = 0;
+3321   4            }
+3322   3            break;
+3323   3          case KEY_5_UP:
+3324   3              switch (item_id)
+3325   3              {
+3326   4              case 1:
+3327   4                var.vol_up = control_para.vol_up;
+3328   4                break;
+3329   4              case 2:
+3330   4                var.type = control_para.type;
+3331   4                break;
+3332   4              case 3:
+3333   4                var.vol_down = control_para.vol_down;
+3334   4                break;
+3335   4              case 4:
+3336   4                var.factor = control_para.factor;
+3337   4                break;        
+3338   4              case 5:
+3339   4                var.cos_up_f = control_para.cos_up_f;
+3340   4                var.cos_up = control_para.cos_up;
+3341   4                break;              
+3342   4              case 6:
+3343   4                var.delay_time_on = control_para.delay_time_on;
+3344   4                break;
+3345   4              case 7:
+3346   4                var.cos_down = control_para.cos_down;
+3347   4                break;
+3348   4              case 8:
+3349   4                var.delay_time_off = control_para.delay_time_off;
+3350   4                break;
+3351   4              case 9:
+3352   4                var.times = control_para.times;
+3353   4                break;
+3354   4              case 10:
+3355   4                var.time_interval = control_para.time_interval;
+3356   4                break;
+3357   4              }
+3358   3            state = 1;
+3359   3            edit_col = 0;
+3360   3            break;
+3361   3          }
+3362   2        }
+3363   1      
+3364   1        // ÏÔÊ¾²¿·Ö
+3365   1      
+3366   1        LCD_DisplayString(81, 0, g_control_para_titles[0], 16, 0);
+3367   1      
+3368   1        LCD_DisplayString(0, 18, g_control_para_titles[1], 16, ((item_id == 1) && (state == 1)) ? 1 : 0);
+3369   1        LCD_DisplayString(69, 18, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3370   1        LCD_DisplayFixedPoint(75, 18, var.vol_up / 10, var.vol_up % 10, 2, 1, 16,
+3371   1                              ((item_id == 1) && (state == 2)) ? edit_col : 0xFF, 0);
+3372   1        LCD_DisplayString(105, 18, "KV", 16, 0);
+3373   1      
+3374   1        LCD_DisplayString(129, 18, g_control_para_titles[2], 16, ((item_id == 2) && (state == 1)) ? 1 : 0);
+3375   1        LCD_DisplayChar(198, 18, ":", 16, 0);                                                                   
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 56  
+
+             -        // Ã°ºÅ²»·´ÏÔ
+3376   1        LCD_DisplayString(204, 18, g_control_para_titles[10 + var.type], 16, ((item_id == 2) && (state == 2)) ? 
+             -1 : 0); // Ã°ºÅ²»·´ÏÔ
+3377   1      
+3378   1        LCD_DisplayString(0, 36, g_control_para_titles[3], 16, ((item_id == 3) && (state == 1)) ? 1 : 0);
+3379   1        LCD_DisplayString(69, 36, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3380   1        LCD_DisplayFixedPoint(75, 36, var.vol_down / 10, var.vol_down % 10, 2, 1, 16,
+3381   1                              ((item_id == 3) && (state == 2)) ? edit_col : 0xFF, 0);
+3382   1        LCD_DisplayString(105, 36, "KV", 16, 0);
+3383   1      
+3384   1        LCD_DisplayString(129, 36, g_control_para_titles[4], 16, ((item_id == 4) && (state == 1)) ? 1 : 0);
+3385   1        LCD_DisplayChar(198, 36, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3386   1        LCD_DisplayFixedPoint(204, 36, var.factor / 100, var.factor % 100, 1, 2, 16,
+3387   1                              ((item_id == 4) && (state == 2)) ? edit_col : 0xFF, 0);
+3388   1      
+3389   1        LCD_DisplayString(0, 54, g_control_para_titles[5], 16, ((item_id == 5) && (state == 1)) ? 1 : 0);
+3390   1        LCD_DisplayString(69, 54, ":", 16, 0);                                                                  
+             -              // Ã°ºÅ²»·´ÏÔ
+3391   1        LCD_DisplayString(75, 54, var.cos_up_f ? "-" : "+", 16, ((item_id == 5) && (state == 2) && (edit_col == 
+             -0)) ? 1 : 0); //+-
+3392   1        LCD_DisplayFixedPoint(84, 54, var.cos_up / 100, var.cos_up % 100, 1, 2, 16,
+3393   1                              ((item_id == 5) && (state == 2) && (edit_col > 0)) ? (edit_col - 1) : 0xFF, 0);
+3394   1      
+3395   1        LCD_DisplayString(129, 54, g_control_para_titles[6], 16, ((item_id == 6) && (state == 1)) ? 1 : 0);
+3396   1        LCD_DisplayChar(198, 54, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3397   1        LCD_DisplayNum(204, 54, var.delay_time_on, 16, 3, ((item_id == 6) && (state == 2)) ? edit_col : 0xff, 0,
+             - 1);
+3398   1        LCD_DisplayChar(231, 54, "s", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3399   1      
+3400   1        LCD_DisplayString(0, 72, g_control_para_titles[7], 16, ((item_id == 7) && (state == 1)) ? 1 : 0);
+3401   1        LCD_DisplayString(69, 72, ":", 16, 0);  // Ã°ºÅ²»·´ÏÔ
+3402   1        LCD_DisplayString(75, 72, "0.", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3403   1        LCD_DisplayNum(87, 72, var.cos_down, 16, 2, ((item_id == 7) && (state == 2)) ? edit_col : 0xff, 0, 1);
+3404   1      
+3405   1        LCD_DisplayString(129, 72, g_control_para_titles[8], 16, ((item_id == 8) && (state == 1)) ? 1 : 0);
+3406   1        LCD_DisplayString(198, 72, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3407   1        LCD_DisplayNum(204, 72, var.delay_time_off, 16, 3, ((item_id == 8) && (state == 2)) ? edit_col : 0xff, 0
+             -, 1);
+3408   1        LCD_DisplayChar(231, 72, "s", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3409   1      
+3410   1        LCD_DisplayString(0, 90, g_control_para_titles[9], 16, ((item_id == 9) && (state == 1)) ? 1 : 0);
+3411   1        LCD_DisplayString(69, 90, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3412   1        LCD_DisplayNum(75, 90, var.times, 16, 3, ((item_id == 9) && (state == 2)) ? edit_col : 0xff, 0, 1);
+3413   1        LCD_DisplayString(102, 90, "/ÈÕ", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3414   1      
+3415   1        LCD_DisplayString(129, 90, g_control_para_titles[10], 16, ((item_id == 10) && (state == 1)) ? 1 : 0);
+3416   1        LCD_DisplayString(198, 90, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3417   1        LCD_DisplayNum(204, 90, var.time_interval, 16, 2, ((item_id == 10) && (state == 2)) ? edit_col : 0xff, 0
+             -, 1);
+3418   1        LCD_DisplayString(222, 90, "s", 16, 0); // Ã°ºÅ²»·´ÏÔ
+3419   1      
+3420   1        LCD_DisplayString(0, 110, g_control_para_titles[15], 16, ((item_id == 11) && (state == 1)) ? 1 : 0);
+3421   1        LCD_DisplayString(204, 110, g_control_para_titles[16], 16, ((item_id == 12) && (state == 1)) ? 1 : 0);
+3422   1      }
+3423          
+3424          
+3425          
+3426          // ==================== Í¨ÓÃµçÑ¹±£»¤²ÎÊýÉèÖÃº¯Êý£¨C89+ºê¶¨Òå£© ====================
+3427          void Sys_Vol_Prot_Para_Set(u8 key_val, VolProtType prot_type)
+3428          {
+3429   1        static Protect_Para_Struct pro, var;
+3430   1        code const char *g_voll_prot_titles[7] = {
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 57  
+
+3431   1      
+3432   1            "ÏµÍ³Ç·Ñ¹±£»¤", "Ç·Ñ¹Í¶ÍË", "Ç·Ñ¹µçÑ¹", "Ç·Ñ¹Ê±¼ä", "±£´æ", "ÍË³ö", "Í¶Èë"
+3433   1      
+3434   1        };
+3435   1        code const char *g_volh_prot_titles[4] = {
+3436   1      
+3437   1            "ÏµÍ³¹ý\xFDÑ¹±£»¤ ", "¹ý\xFDÑ¹Í¶ÍË", "¹ý\xFDÑ¹µçÑ¹", "¹ý\xFDÑ¹Ê±¼ä "
+3438   1        };
+3439   1      
+3440   1        // ³õÊ¼»¯
+3441   1        if (state == 0)
+3442   1        {
+3443   2          if (prot_type == VOL_PROT_H)
+3444   2          {
+3445   3            pro = g_vol_h;
+3446   3            var = g_vol_h;
+3447   3          }
+3448   2          else
+3449   2          {
+3450   3            pro = g_vol_l;
+3451   3            var = g_vol_l;
+3452   3          }
+3453   2          edit_col = 0;
+3454   2          item_id = 1;
+3455   2          state = 1;
+3456   2        }
+3457   1      
+3458   1        else if (state == 1)
+3459   1        {
+3460   2          // ä¯ÀÀÄ£Ê½
+3461   2          switch (key_val)
+3462   2          {
+3463   3          case KEY_0_UP:
+3464   3            if (item_id < 5)
+3465   3            {
+3466   4              item_id--;
+3467   4              if (item_id < 1)
+3468   4                item_id = 4;
+3469   4            }
+3470   3            break;
+3471   3          case KEY_1_UP:
+3472   3            if (item_id < 5)
+3473   3            {
+3474   4              item_id++;
+3475   4              if (item_id > 4)
+3476   4                item_id = 1;
+3477   4            }
+3478   3      
+3479   3            break;
+3480   3          case KEY_2_UP:
+3481   3          case KEY_3_UP:
+3482   3            if (item_id == 5)
+3483   3              item_id = 4;
+3484   3            else if (item_id == 4)
+3485   3              item_id = 5;
+3486   3            break;
+3487   3          case KEY_4_UP:
+3488   3            if (item_id <= 3)
+3489   3            {
+3490   4              state = 2; // ±à¼­Ç°3Ïî
+3491   4              edit_col = 0;
+3492   4            }
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 58  
+
+3493   3            else if (item_id == 4)
+3494   3            {
+3495   4                  if (prot_type == VOL_PROT_H)
+3496   4          {
+3497   5                     if(Set_OV_Protect_Para(&pro))
+3498   5                       g_hard_state.iic_err_times++;
+3499   5                     else
+3500   5                     {
+3501   6                       g_vol_h=pro;
+3502   6                      menu_state.id = PROT_PARAM; // ±£´æ
+3503   6                      state = 0;
+3504   6                      LCD_Clear();
+3505   6                      menu_state.switch_temp_flag = 1;                 
+3506   6                             return;
+3507   6                     }
+3508   5                       
+3509   5          }
+3510   4          else
+3511   4          {
+3512   5          
+3513   5                       if(Set_UV_Protect_Para(&pro))
+3514   5                       g_hard_state.iic_err_times++;
+3515   5                     else
+3516   5                     {
+3517   6                       g_vol_l=pro;
+3518   6                      menu_state.id = PROT_PARAM; // ±£´æ
+3519   6                      state = 0;
+3520   6                      LCD_Clear();
+3521   6                      menu_state.switch_temp_flag = 1;                 
+3522   6                             return;
+3523   6                     }  
+3524   5          
+3525   5          
+3526   5          }
+3527   4      
+3528   4            }
+3529   3            else if (item_id == 5)
+3530   3            {
+3531   4              menu_state.id = PROT_PARAM; // ±£´æ
+3532   4              state = 0;
+3533   4              LCD_Clear();
+3534   4              menu_state.switch_temp_flag = 1;
+3535   4              return;
+3536   4            }
+3537   3            break;
+3538   3          case KEY_5_UP:
+3539   3            menu_state.id = PROT_PARAM; // ±£´æ
+3540   3            state = 0;
+3541   3            LCD_Clear();
+3542   3            menu_state.switch_temp_flag = 1;
+3543   3            return;
+3544   3            break;
+3545   3          }
+3546   2          var = pro;
+3547   2        }
+3548   1        else if (state == 2)
+3549   1        { // ±à¼­Ä£Ê½
+3550   2      
+3551   2          switch (key_val)
+3552   2          {
+3553   3          case KEY_0_UP: // ¼Ó
+3554   3          case KEY_1_UP: // ¼õ£¨¶Ô¿ª¹ØÁ¿£¬¼Ó¼õÐ§¹ûÏàÍ¬£©
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 59  
+
+3555   3            if (item_id == 1)
+3556   3            {
+3557   4              var.onf = !var.onf; // ÇÐ»» on/off
+3558   4            }
+3559   3            else if (item_id == 2)
+3560   3            {
+3561   4      
+3562   4              adjust_digit_u16(&var.value, edit_col, (key_val == KEY_0_UP) ? 1 : -1, 4);
+3563   4            }
+3564   3            else if (item_id == 3)
+3565   3            {
+3566   4              adjust_digit_u16(&var.time, edit_col, (key_val == KEY_0_UP) ? 1 : -1, 4);
+3567   4            }
+3568   3            break;
+3569   3          case KEY_2_UP: // ×ó
+3570   3            if (item_id >= 2 && item_id <= 3)
+3571   3            {
+3572   4              edit_col--;
+3573   4              if (edit_col < 0)
+3574   4                edit_col = 3;
+3575   4            }
+3576   3            break;
+3577   3          case KEY_3_UP: // ÓÒ
+3578   3            if (item_id >= 2 && item_id <= 3)
+3579   3            {
+3580   4              edit_col++;
+3581   4              if (edit_col > 3)
+3582   4                edit_col = 0;
+3583   4            }
+3584   3            break;
+3585   3          case KEY_4_UP: // ÍË³ö±à¼­
+3586   3            state = 1;
+3587   3            edit_col = 0;
+3588   3            switch (item_id)
+3589   3            {
+3590   4            case 1:
+3591   4                pro.onf = var.onf;
+3592   4              break;
+3593   4            case 2:
+3594   4                pro.value = var.value;
+3595   4              break;
+3596   4            case 3:
+3597   4                pro.time = var.time;
+3598   4            break;
+3599   4          }
+3600   3            break;
+3601   3          case KEY_5_UP:
+3602   3            switch (item_id)
+3603   3            {
+3604   4            case 1:
+3605   4                var.onf = pro.onf;
+3606   4              break;
+3607   4            case 2:
+3608   4                var.value = pro.value;
+3609   4              break;
+3610   4            case 3:
+3611   4                var.time = pro.time;
+3612   4              break;
+3613   4            }
+3614   3            state = 1;
+3615   3            edit_col = 0;
+3616   3            break;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 60  
+
+3617   3          }
+3618   2        }
+3619   1      
+3620   1        // ÏÔÊ¾£¨½öÖÐÎÄÊ¾Àý£©
+3621   1      
+3622   1        LCD_DisplayString(66, 0, prot_type == VOL_PROT_L ? g_voll_prot_titles[0] : g_volh_prot_titles[0], 16, 0)
+             -;
+3623   1      
+3624   1        // Í¶ÍË
+3625   1        LCD_DisplayString(0, 20, prot_type == VOL_PROT_L ? g_voll_prot_titles[1] : g_volh_prot_titles[1], 16, ((
+             -item_id == 1) && (state == 1)));
+3626   1        LCD_DisplayChar(72, 20, ":", 16, 0);
+3627   1        LCD_DisplayString(72 + 9, 20,
+3628   1                          var.onf ? g_voll_prot_titles[6] : g_voll_prot_titles[5], // "Í¶Èë" »ò "ÍË³ö"
+3629   1                          16, ((item_id == 1) && (state == 2)));
+3630   1      
+3631   1        // µçÑ¹Öµ
+3632   1        LCD_DisplayString(0, 40, prot_type == VOL_PROT_L ? g_voll_prot_titles[2] : g_volh_prot_titles[2], 16, ((
+             -item_id == 2) && (state == 1)));
+3633   1        LCD_DisplayString(72, 40, ":", 16, 0);
+3634   1        LCD_DisplayFixedPoint(72 + 9, 40, var.value / 100, var.value % 100, 2, 2, 16,
+3635   1                              ((item_id == 2) && (state == 2)) ? edit_col : 0xFF, 0);
+3636   1        LCD_DisplayString(72 + 51, 40, "KV", 16, 0);
+3637   1      
+3638   1        // Ê±¼ä
+3639   1        LCD_DisplayString(0, 60, prot_type == VOL_PROT_L ? g_voll_prot_titles[3] : g_volh_prot_titles[3], 16, ((
+             -item_id == 3) && (state == 1)));
+3640   1        LCD_DisplayString(72, 60, ":", 16, 0);
+3641   1        LCD_DisplayFixedPoint(72 + 9, 60, var.time / 100, var.time % 100, 2, 2, 16,
+3642   1                              ((item_id == 3) && (state == 2)) ? edit_col : 0xFF, 0);
+3643   1        LCD_DisplayChar(72 + 51, 60, "s", 16, 0);
+3644   1      
+3645   1        // °´Å¥
+3646   1        LCD_DisplayString(0, 112, g_voll_prot_titles[4], 16, ((item_id == 4) && (state == 1)));
+3647   1        LCD_DisplayString(204, 112, g_voll_prot_titles[5], 16, ((item_id == 5) && (state == 1)));
+3648   1      }
+3649          
+3650          void Sys_Cap_Prot_Para_Set(u8 key_val, char num)
+3651          {
+3652   1        static Cap_Protect_Para_Struct pro, var;
+3653   1      
+3654   1        code const char *g_cap_titles[7] = {
+3655   1      
+3656   1            "Ò»Â·µçÈÝ±£»¤", "¶þÂ·µçÈÝ±£»¤", "Èý\xFDÂ·µçÈÝ±£»¤", "ËÄÂ·µçÈÝ±£»¤", "Í¶Èë", "ÍË³ö", "±£´æ"
+3657   1      
+3658   1        };
+3659   1        code const char *g_cap_prot_titles[9] = {
+3660   1      
+3661   1            "¹ý\xFDÁ÷Í¶ÍË", "¹ý\xFDÁ÷µçÁ÷", "¹ý\xFDÁ÷Ê±¼ä", "ËÙ¶ÏÍ¶ÍË", "ËÙ¶ÏµçÁ÷", "ËÙ¶ÏÊ±¼ä", "ÁãÐòÍ¶ÍË", "ÁãÐ
+             -òµçÑ¹", "ÁãÐòÊ±¼ä"
+3662   1      
+3663   1        };
+3664   1      
+3665   1        // ³õÊ¼»¯
+3666   1        if (state == 0)
+3667   1        {
+3668   2      
+3669   2          pro = g_cap_protect[num];
+3670   2          var=g_cap_protect[num];
+3671   2          edit_col = 0;
+3672   2          item_id = 1;
+3673   2          state = 1;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 61  
+
+3674   2        }
+3675   1      
+3676   1        else if (state == 1)
+3677   1        {
+3678   2          // ä¯ÀÀÄ£Ê½
+3679   2          switch (key_val)
+3680   2          {
+3681   3          case KEY_0_UP: // ÉÏ
+3682   3            if (item_id % 3 == 0)
+3683   3              item_id = item_id - 1;
+3684   3            else if (item_id % 3 == 1)
+3685   3              item_id = item_id - 3;
+3686   3            else
+3687   3              item_id = item_id - 2;
+3688   3      
+3689   3            if (item_id < 0)
+3690   3              item_id = item_id + 12;
+3691   3            if (item_id == 0)
+3692   3              item_id = 11;
+3693   3            break;
+3694   3          case KEY_1_UP: // ÏÂ
+3695   3            if (item_id % 3 == 0)
+3696   3              item_id = item_id + 2;
+3697   3            else if (item_id % 3 == 1)
+3698   3              item_id = item_id + 3;
+3699   3            else
+3700   3              item_id = item_id + 1;
+3701   3            if (item_id > 11)
+3702   3              item_id = item_id - 12;
+3703   3            if (item_id == 0)
+3704   3              item_id = 2;
+3705   3            break;
+3706   3          case KEY_2_UP:
+3707   3          case KEY_3_UP: // ×óÓÒ¼ü
+3708   3            if (item_id < 4)
+3709   3            {
+3710   4              if (item_id == 1)
+3711   4                item_id = 2;
+3712   4              else
+3713   4                item_id = 1;
+3714   4            }
+3715   3            else if (item_id < 7)
+3716   3            {
+3717   4              if (item_id == 4)
+3718   4                item_id = 5;
+3719   4              else
+3720   4                item_id = 4;
+3721   4            }
+3722   3            else if (item_id < 10)
+3723   3            {
+3724   4              if (item_id == 7)
+3725   4                item_id = 8;
+3726   4              else
+3727   4                item_id = 7;
+3728   4            }
+3729   3            else if (item_id < 13)
+3730   3            {
+3731   4              if (item_id == 10)
+3732   4                item_id = 11;
+3733   4              else
+3734   4                item_id = 10;
+3735   4            }
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 62  
+
+3736   3            break;
+3737   3          case KEY_4_UP:
+3738   3            if (item_id <= 9)
+3739   3            {
+3740   4              state = 2; // 
+3741   4              edit_col = 0;
+3742   4            }
+3743   3            else if (item_id == 10)
+3744   3            {
+3745   4              if(Set_Cap_Protect_Para_Ch(num,&pro))
+3746   4                g_hard_state.iic_err_times++;
+3747   4              else
+3748   4              {
+3749   5              menu_state.id = PROT_PARAM; // ±£´æ
+3750   5              state = 0;
+3751   5              LCD_Clear();
+3752   5              menu_state.switch_temp_flag = 1;
+3753   5              return;
+3754   5              }
+3755   4            }
+3756   3            else if (item_id == 11)
+3757   3            {
+3758   4              menu_state.id = PROT_PARAM; // ±£´æ
+3759   4              state = 0;
+3760   4              LCD_Clear();
+3761   4              menu_state.switch_temp_flag = 1;
+3762   4              return;
+3763   4            }
+3764   3            break;
+3765   3          case KEY_5_UP:
+3766   3            menu_state.id = PROT_PARAM; // ±£´æ
+3767   3            state = 0;
+3768   3            LCD_Clear();
+3769   3            menu_state.switch_temp_flag = 1;
+3770   3            return;
+3771   3            break;
+3772   3          }
+3773   2          var = pro;
+3774   2        }
+3775   1        else if (state == 2)
+3776   1        { // ±à¼­Ä£Ê½
+3777   2      
+3778   2          switch (key_val)
+3779   2          {
+3780   3          case KEY_0_UP: // ¼Ó
+3781   3          case KEY_1_UP: // ¼õ£¨¶Ô¿ª¹ØÁ¿£¬¼Ó¼õÐ§¹ûÏàÍ¬£©
+3782   3      
+3783   3            switch (item_id)
+3784   3            {
+3785   4      
+3786   4            case 1:
+3787   4              var.over_onf = !var.over_onf; // ÇÐ»» on/off
+3788   4              break;
+3789   4            case 2:
+3790   4              adjust_digit_u16(&var.over_value, edit_col, (key_val == KEY_0_UP) ? 1 : -1, 4);
+3791   4              break;
+3792   4            case 3:
+3793   4              adjust_digit_u16(&var.over_time, edit_col, (key_val == KEY_0_UP) ? 1 : -1, 4);
+3794   4              break;
+3795   4            case 4:
+3796   4              var.quick_onf = !var.quick_onf; // ÇÐ»» on/off
+3797   4              break;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 63  
+
+3798   4            case 5:
+3799   4              adjust_digit_u16(&var.quick_value, edit_col, (key_val == KEY_0_UP) ? 1 : -1, 4);
+3800   4              break;
+3801   4            case 6:
+3802   4              adjust_digit_u16(&var.quick_time, edit_col, (key_val == KEY_0_UP) ? 1 : -1, 4);
+3803   4              break;
+3804   4            case 7:
+3805   4              var.zero_onf = !var.zero_onf; // ÇÐ»» on/off
+3806   4              break;
+3807   4            case 8:
+3808   4              adjust_digit_u16(&var.zero_value, edit_col, (key_val == KEY_0_UP) ? 1 : -1, 4);
+3809   4              break;
+3810   4            case 9:
+3811   4              adjust_digit_u16(&var.zero_time, edit_col, (key_val == KEY_0_UP) ? 1 : -1, 4);
+3812   4              break;
+3813   4            }
+3814   3            break;
+3815   3          case KEY_2_UP: // ×ó
+3816   3            if ((item_id != 1) && (item_id != 4) && (item_id != 7))
+3817   3            {
+3818   4              edit_col--;
+3819   4              if (edit_col < 0)
+3820   4                edit_col = 3;
+3821   4            }
+3822   3            break;
+3823   3          case KEY_3_UP: // ÓÒ
+3824   3            if ((item_id != 1) && (item_id != 4) && (item_id != 7))
+3825   3            {
+3826   4              edit_col++;
+3827   4              if (edit_col > 3)
+3828   4                edit_col = 0;
+3829   4            }
+3830   3            break;
+3831   3          case KEY_4_UP: // ÍË³ö±à¼­
+3832   3            state = 1;
+3833   3            edit_col = 0;
+3834   3            switch (item_id)
+3835   3            {
+3836   4      
+3837   4            case 1:
+3838   4              pro.over_onf = var.over_onf;
+3839   4              break;
+3840   4            case 2:
+3841   4              pro.over_value = var.over_value;
+3842   4              break;
+3843   4            case 3:
+3844   4              pro.over_time = var.over_time;
+3845   4              break;
+3846   4            case 4:
+3847   4              pro.quick_onf = var.quick_onf;
+3848   4              break;
+3849   4            case 5:
+3850   4              pro.quick_value = var.quick_value;
+3851   4              break;
+3852   4            case 6:
+3853   4              pro.quick_time = var.quick_time;
+3854   4              break;
+3855   4            case 7:
+3856   4              pro.zero_onf = var.zero_onf;
+3857   4              break;
+3858   4            case 8:
+3859   4              pro.zero_value = var.zero_value;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 64  
+
+3860   4              break;
+3861   4            case 9:
+3862   4              pro.zero_time = var.zero_time;
+3863   4              break;
+3864   4            }
+3865   3            break;
+3866   3          case KEY_5_UP:
+3867   3        switch (item_id)
+3868   3            {
+3869   4      
+3870   4            case 1:
+3871   4              var.over_onf = pro.over_onf;
+3872   4              break;
+3873   4            case 2:
+3874   4              var.over_value = pro.over_value;
+3875   4              break;
+3876   4            case 3:
+3877   4              var.over_time = pro.over_time;
+3878   4              break;
+3879   4            case 4:
+3880   4              var.quick_onf = pro.quick_onf;
+3881   4              break;
+3882   4            case 5:
+3883   4              var.quick_value = pro.quick_value;
+3884   4              break;
+3885   4            case 6:
+3886   4              var.quick_time = pro.quick_time;
+3887   4              break;
+3888   4            case 7:
+3889   4              var.zero_onf = pro.zero_onf;
+3890   4              break;
+3891   4            case 8:
+3892   4              var.zero_value = pro.zero_value;
+3893   4              break;
+3894   4            case 9:
+3895   4              var.zero_time = pro.zero_time;
+3896   4              break;
+3897   4            }
+3898   3            state = 1;
+3899   3            edit_col = 0;
+3900   3            break;
+3901   3          }
+3902   2        }
+3903   1      
+3904   1        // ÏÔÊ¾£¨½öÖÐÎÄÊ¾Àý£©
+3905   1      
+3906   1        LCD_DisplayString(66, 0, g_cap_titles[num], 16, 0);
+3907   1      
+3908   1        // Í¶ÍË
+3909   1        LCD_DisplayString(0, 16, g_cap_prot_titles[0], 16, ((item_id == 1) && (state == 1)));
+3910   1        LCD_DisplayChar(72, 16, "#", 16, 0);
+3911   1        LCD_DisplayString(75, 16,
+3912   1                          var.over_onf ? g_cap_titles[4] : g_cap_titles[5], // "Í¶Èë" »ò "ÍË³ö"
+3913   1                          16, ((item_id == 1) && (state == 2)));
+3914   1      
+3915   1        // µçÁ÷Öµ
+3916   1        LCD_DisplayString(120, 16, g_cap_prot_titles[1], 16, ((item_id == 2) && (state == 1)));
+3917   1        LCD_DisplayString(189, 16, "#", 16, 0);
+3918   1        LCD_DisplayFixedPoint(192, 16, var.over_value/100,var.over_value%100,2,2, 16,  ((item_id == 2) && (state
+             - == 2)) ? edit_col : 0xFF, 0);
+3919   1        LCD_DisplayString(231, 16, "A", 16, 0);
+3920   1      
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 65  
+
+3921   1        // Ê±¼ä
+3922   1        LCD_DisplayString(120, 31, g_cap_prot_titles[2], 16, ((item_id == 3) && (state == 1)));
+3923   1        LCD_DisplayString(189, 31, "#", 16, 0);
+3924   1        LCD_DisplayFixedPoint(192, 31, var.over_time / 100, var.over_time % 100, 2, 2, 16,
+3925   1                              ((item_id == 3) && (state == 2)) ? edit_col : 0xFF, 0);
+3926   1        LCD_DisplayChar(231, 31, "s", 16, 0);
+3927   1      
+3928   1        LCD_DisplayString(0, 48, g_cap_prot_titles[3], 16, ((item_id == 4) && (state == 1)));
+3929   1        LCD_DisplayChar(72, 48, "#", 16, 0);
+3930   1        LCD_DisplayString(75, 48,
+3931   1                          var.quick_onf ? g_cap_titles[4] : g_cap_titles[5], // "Í¶Èë" »ò "ÍË³ö"
+3932   1                          16, ((item_id == 4) && (state == 2)));
+3933   1      
+3934   1        // µçÁ÷Öµ
+3935   1        LCD_DisplayString(120, 47, g_cap_prot_titles[4], 16, ((item_id == 5) && (state == 1)));
+3936   1        LCD_DisplayString(189, 47, "#", 16, 0);
+3937   1        LCD_DisplayFixedPoint(192, 48, var.quick_value/100,var.quick_value%100,2,2 ,16,  ((item_id == 5) && (sta
+             -te == 2)) ? edit_col : 0xFF, 0);
+3938   1        LCD_DisplayString(231, 47, "A", 16, 0);
+3939   1      
+3940   1        // Ê±¼ä
+3941   1        LCD_DisplayString(120, 62, g_cap_prot_titles[5], 16, ((item_id == 6) && (state == 1)));
+3942   1        LCD_DisplayString(189, 62, "#", 16, 0);
+3943   1        LCD_DisplayFixedPoint(192, 62, var.quick_time / 100, var.quick_time % 100, 2, 2, 16,
+3944   1                              ((item_id == 6) && (state == 2)) ? edit_col : 0xFF, 0);
+3945   1        LCD_DisplayChar(231, 62, "s", 16, 0);
+3946   1      
+3947   1        LCD_DisplayString(0, 80, g_cap_prot_titles[6], 16, ((item_id == 7) && (state == 1)));
+3948   1        LCD_DisplayChar(72, 80, "#", 16, 0);
+3949   1        LCD_DisplayString(75, 80,
+3950   1                          var.zero_onf ? g_cap_titles[4] : g_cap_titles[5], // "Í¶Èë" »ò "ÍË³ö"
+3951   1                          16, ((item_id == 7) && (state == 2)));
+3952   1      
+3953   1        // µçÑ¹Öµ
+3954   1        LCD_DisplayString(120, 78, g_cap_prot_titles[7], 16, ((item_id == 8) && (state == 1)));
+3955   1        LCD_DisplayString(189, 78, "#", 16, 0);
+3956   1        LCD_DisplayFixedPoint(192, 78, var.zero_value/100,var.zero_value%100,2,2 ,16, ((item_id == 8) && (state 
+             -== 2)) ? edit_col : 0xFF, 0);
+3957   1        LCD_DisplayString(231, 78, "V", 16, 0);
+3958   1      
+3959   1        // Ê±¼ä
+3960   1        LCD_DisplayString(120, 93, g_cap_prot_titles[8], 16, ((item_id == 9) && (state == 1)));
+3961   1        LCD_DisplayString(189, 93, "#", 16, 0);
+3962   1        LCD_DisplayFixedPoint(192, 93, var.zero_time / 100, var.zero_time % 100, 2, 2, 16,
+3963   1                              ((item_id == 9) && (state == 2)) ? edit_col : 0xFF, 0);
+3964   1        LCD_DisplayChar(231, 93, "s", 16, 0);
+3965   1      
+3966   1        // °´Å¥
+3967   1        LCD_DisplayString(0, 112, g_cap_titles[6], 16, ((item_id == 10) && (state == 1)));
+3968   1        LCD_DisplayString(204, 112, g_cap_titles[5], 16, ((item_id == 11) && (state == 1)));
+3969   1      }
+3970          
+3971          /*********Í¨Ñ¶²ÎÊýÉèÖÃ²Ëµ¥²¿·Ö********/
+3972          void Sys_Com_Para_Set(u8 key_val)
+3973          {
+3974   1      
+3975   1        static Com_Para_Struct com, var;
+3976   1        static uint8_t key[4]={0};
+3977   1        static num=0;
+3978   1        code const char *g_com_para_titles[6] = {
+3979   1      
+3980   1            "Í¨Ñ¶²ÎÊý\xFD",
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 66  
+
+3981   1            "Í¨Ñ¶µØÖ·",
+3982   1            "²¨ÌØÂÊÖµ",
+3983   1            "Í¨Ñ¶¹æÔ¼",
+3984   1            "±£´æ",
+3985   1            "ÍË³ö",
+3986   1        };
+3987   1      
+3988   1        if (state == 0) // µÚÒ»´Î½øÈë²Ëµ¥£¬ÏµÍ³±äÁ¿¸³Öµµ½ÁÙÊ±±äÁ¿¡£³õÊ¼»¯×ø±ê£¬ä¯ÀÀÄ£Ê½£¬±à¼­×ø±êÎª0xff
+3989   1        {
+3990   2          com = g_com;
+3991   2          var = g_com;
+3992   2          edit_col = 0;
+3993   2          state = 1;
+3994   2          item_id = 1;
+3995   2          key[0]=0;
+3996   2          key[1]=0;
+3997   2          key[2]=0;
+3998   2          key[3]=0; 
+3999   2          num=0;    
+4000   2        }
+4001   1        else if (state == 1)
+4002   1        {
+4003   2          // ä¯ÀÀÄ£Ê½
+4004   2          switch (key_val)
+4005   2          {
+4006   3          case KEY_0_UP:
+4007   3            if (item_id < 5)
+4008   3            {
+4009   4              item_id--;
+4010   4              if (item_id < 1)
+4011   4                item_id = 4;
+4012   4            }
+4013   3            break;
+4014   3          case KEY_1_UP:
+4015   3            if (item_id < 5)
+4016   3            {
+4017   4              item_id++;
+4018   4              if (item_id > 4)
+4019   4                item_id = 1;
+4020   4            }
+4021   3      
+4022   3            break;
+4023   3          case KEY_2_UP:
+4024   3          case KEY_3_UP:
+4025   3            if (item_id == 5)
+4026   3              item_id = 4;
+4027   3            else if (item_id == 4)
+4028   3              item_id = 5;
+4029   3            
+4030   3            if((com.address==0xff)&&(item_id==3))
+4031   3            {
+4032   4                 key[num++]=key_val;
+4033   4                if(num==4)
+4034   4                {
+4035   5                  if((key[0]==KEY_2_UP)&&(key[1]==KEY_2_UP)&&(key[2]==KEY_3_UP)&&(key[3]==KEY_3_UP))
+4036   5                  {
+4037   6              menu_state.id = PASSWORD;
+4038   6              menu_state.last_id = STATISTIC_PARAM;
+4039   6              LCD_Clear();
+4040   6              state = 0; // ±£´æ
+4041   6              menu_state.switch_temp_flag = 1;  
+4042   6              num=0;
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 67  
+
+4043   6              return ;              
+4044   6                    
+4045   6                  }
+4046   5                  num=0;
+4047   5                }
+4048   4            }
+4049   3            
+4050   3            
+4051   3            break;
+4052   3      
+4053   3          case KEY_4_UP:
+4054   3            if (item_id <= 2)
+4055   3            {
+4056   4              state = 2; // ½øÈë±à¼­
+4057   4              edit_col = 0;
+4058   4            }
+4059   3            else if (item_id == 4)
+4060   3            {
+4061   4              if(Set_Com_Para(&com))
+4062   4                g_hard_state.iic_err_times++;
+4063   4              else
+4064   4              {
+4065   5              g_com = com;
+4066   5              menu_state.id = PARAM_SETTING;
+4067   5              LCD_Clear();
+4068   5              state = 0; // ±£´æ
+4069   5              menu_state.switch_temp_flag = 1;
+4070   5              
+4071   5              return;
+4072   5              }
+4073   4            }
+4074   3            else if (item_id == 5)
+4075   3            {
+4076   4              menu_state.id = PARAM_SETTING;
+4077   4              LCD_Clear();
+4078   4              state = 0; // ÍË³ö£¨²»±£´æ£©
+4079   4              menu_state.switch_temp_flag = 1;
+4080   4              return;
+4081   4            }
+4082   3            break;
+4083   3      
+4084   3          case KEY_5_UP:
+4085   3            menu_state.id = PARAM_SETTING;
+4086   3            LCD_Clear();
+4087   3            state = 0; // ÍË³ö£¨²»±£´æ£©
+4088   3            menu_state.switch_temp_flag = 1;
+4089   3            return;
+4090   3            break;
+4091   3          }
+4092   2          var = com;
+4093   2        }
+4094   1        else if (state == 2) // ²ÎÊý±à¼­
+4095   1        {
+4096   2          switch (key_val)
+4097   2          {
+4098   3          case KEY_0_UP: // ¼Ó
+4099   3            if (item_id == 1)
+4100   3            {
+4101   4              adjust_hex_digit(&var.address, edit_col, 1);
+4102   4            }
+4103   3            if (item_id == 2)
+4104   3            {
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 68  
+
+4105   4              var.bps = var.bps << 1;
+4106   4              if (var.bps > 9600)
+4107   4                var.bps = 1200;
+4108   4            }
+4109   3            break;
+4110   3          case KEY_1_UP: // ¼õ
+4111   3            if (item_id == 1)
+4112   3            {
+4113   4              adjust_hex_digit(&var.address, edit_col, -1);
+4114   4            }
+4115   3            if (item_id == 2)
+4116   3            {
+4117   4              var.bps = var.bps >> 1;
+4118   4              if (var.bps < 1200)
+4119   4                var.bps = 9600;
+4120   4            }
+4121   3            break;
+4122   3          case KEY_2_UP:
+4123   3            edit_col--;
+4124   3            if ((item_id == 1))
+4125   3            {
+4126   4              if (edit_col <0)
+4127   4              {
+4128   5                edit_col = 1;
+4129   5              }
+4130   4            }
+4131   3            break;
+4132   3          case KEY_3_UP:
+4133   3            edit_col++;
+4134   3            if ((item_id == 1))
+4135   3            {
+4136   4              if (edit_col > 1)
+4137   4              {
+4138   5                edit_col = 0;
+4139   5              }
+4140   4            }
+4141   3            break;
+4142   3          case KEY_4_UP:
+4143   3      
+4144   3            com = var;
+4145   3      
+4146   3            state = 1;
+4147   3            edit_col = 0xff;
+4148   3            break;
+4149   3          case KEY_5_UP:
+4150   3            var = com;
+4151   3            state = 1;
+4152   3            edit_col = 0xff;
+4153   3            break;
+4154   3          }
+4155   2        }
+4156   1      
+4157   1        // ÏÔÊ¾²¿·Ö
+4158   1      
+4159   1        LCD_DisplayString(81, 0, g_com_para_titles[0], 16, 0);
+4160   1      
+4161   1        LCD_DisplayString(0, 20, g_com_para_titles[1], 16, ((item_id == 1) && (state == 1)) ? 1 : 0);
+4162   1        LCD_DisplayChar(72, 20, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+4163   1      
+4164   1        LCD_DisplayHex(81, 20, var.address, 16, 2, ((item_id == 1) && (state == 2)) ? edit_col : 0xff, 0);
+4165   1      
+4166   1        LCD_DisplayChar(99, 20, "H", 16, 0); // Ã°ºÅ²»·´ÏÔ
+C51 COMPILER V9.60.0.0   MENU                                                              01/09/2026 13:31:22 PAGE 69  
+
+4167   1      
+4168   1        LCD_DisplayString(0, 40, g_com_para_titles[2], 16, ((item_id == 2) && (state == 1)) ? 1 : 0);
+4169   1        LCD_DisplayChar(72, 40, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+4170   1        LCD_DisplayNum(81, 40, var.bps, 16, 4, 0xff, ((item_id == 2) && (state == 2)) ? 1 : 0, 1);
+4171   1        //    LCD_DisplayString(x1 + 45, 40, "bps", 16, 0);
+4172   1      
+4173   1        LCD_DisplayString(0, 60, g_com_para_titles[3], 16, ((item_id == 3) && (state == 1)) ? 1 : 0);
+4174   1        LCD_DisplayChar(72, 60, ":", 16, 0); // Ã°ºÅ²»·´ÏÔ
+4175   1      
+4176   1        LCD_DisplayString(81, 60, "Modbus", 16, 0);
+4177   1      
+4178   1        LCD_DisplayString(0, 112, g_com_para_titles[4], 16, ((item_id == 4) && (state == 1)) ? 1 : 0);
+4179   1        LCD_DisplayString(204, 112, g_com_para_titles[5], 16, ((item_id == 5) && (state == 1)) ? 1 : 0);
+4180   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =  32059    ----
+   CONSTANT SIZE    =   1390    ----
+   XDATA SIZE       =    352     170
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
