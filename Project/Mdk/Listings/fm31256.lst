@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 1   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE FM31256
@@ -62,7 +62,7 @@ line level    source
   51   1          char SFRPAGE_SAVE = SFRPAGE;
   52   1          SFRPAGE = SMB0_PAGE;  
   53   1          // Ð£Ñé²ÎÊýºÏ·¨ÐÔ
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 2   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 2   
 
   54   1          if (buf == NULL || len == 0 || addr > 0x7FFF) 
   55   1          {
@@ -126,7 +126,7 @@ line level    source
  113   3              }
  114   2          }
  115   1      
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 3   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 3   
 
  116   1          // µÚËÄ²½£º·¢ËÍÍ£Ö¹Ìõ¼þ
  117   1          I2C_Stop();
@@ -190,7 +190,7 @@ line level    source
  175   2              if (err != I2C_SUCCESS) {
  176   3                  I2C_Stop();
  177   3                  SFRPAGE = SFRPAGE_SAVE;
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 4   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 4   
 
  178   3                  return FM31256_ERR_I2C;
  179   3              }
@@ -254,7 +254,7 @@ line level    source
  237   1          err = I2C_SendData(addr );
  238   1          if (err != I2C_SUCCESS) {
  239   2              I2C_Stop();
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 5   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 5   
 
  240   2          SFRPAGE = SFRPAGE_SAVE;
  241   2              return FM31256_ERR_I2C;
@@ -318,7 +318,7 @@ line level    source
  299   1          // 3. ·¢ËÍ´æ´¢µØÖ·¸ß×Ö½Ú
  300   1          err = I2C_SendData(addr );
  301   1          if (err != I2C_SUCCESS) {
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 6   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 6   
 
  302   2              I2C_Stop();
  303   2              SFRPAGE = SFRPAGE_SAVE;
@@ -382,7 +382,7 @@ line level    source
  361   1          err=FM31256_Reg_Write(FM31256_RTC_CTRL,0);
  362   1          // -------------------------- ÐÞÕý£ºÊý×éÓ³Éä£¨ÌùºÏÊÖ²á¼Ä´æÆ÷Ë³Ðò£©--------------------------
  363   1          // rtc_buf[0] = 0x02£¨Ãë£©¡¢rtc_buf[1] = 0x03£¨·Ö£©¡¢rtc_buf[2] = 0x04£¨Ê±£©
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 7   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 7   
 
  364   1          // rtc_buf[3] = 0x05£¨ÐÇÆÚ£©¡¢rtc_buf[4] = 0x06£¨ÈÕ£©¡¢rtc_buf[5] = 0x07£¨ÔÂ£©¡¢rtc_buf[6] = 0x08£¨Äê£
              -©
@@ -446,7 +446,7 @@ line level    source
  421   3                      max_day = 28;
  422   3                  }
  423   2                  break;
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 8   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 8   
 
  424   2              case 4: case 6: case 9: case 11:  // Ð¡ÔÂ
  425   2                  max_day = 30;
@@ -510,7 +510,7 @@ line level    source
  483   1          if (err != 0) return err;
  484   1      
  485   1          // 5. RÎ»ÖÃ0£¨×¼±¸²¶»ñ£¬±ØÐëÏÈÖÃ0²ÅÄÜ´¥·¢ÏÂ´Î²¶»ñ£©
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 9   
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 9   
 
  486   1          err = FM31256_Reg_Write(FM31256_RTC_CTRL, 0);
  487   1      
@@ -574,7 +574,7 @@ line level    source
  545   1      
  546   1          // 5. ÐÞÕýÔ­´úÂëÂß¼­´íÎó£º½«¶Á¼Ä´æÆ÷¸ÄÎªÐ´¼Ä´æÆ÷£¨ºËÐÄÐÞÕý£©
  547   1          err = FM31256_Reg_Write(FM31256_RTC_SEC, rtc_buf[0]);
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 10  
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 10  
 
  548   1          if (err != FM31256_OK) return FM31256_ERR_I2C;
  549   1          
@@ -607,7 +607,7 @@ line level    source
  576   1          uint8_t err;
  577   1          uint8_t wdg_cfg;
  578   1          if (timeout > WDG_32S) return FM31256_ERR_PARAM;
- 579   1          wdg_cfg = 0x80 | (timeout & 0x07);  
+ 579   1          wdg_cfg = 0x80 | timeout; 
  580   1          err=FM31256_Reg_Write(FM31256_REG_WDT_CTRL,wdg_cfg);  
  581   1          return err;
  582   1      }
@@ -618,7 +618,7 @@ line level    source
  587           */
  588          uint8_t FM31256_WDG_Disable(void) {
  589   1          uint8_t err;  
- 590   1          err=FM31256_Reg_Write(FM31256_REG_WDT_CTRL,0x00); 
+ 590   1          err=FM31256_Reg_Write(FM31256_REG_WDT_CTRL,0x14); 
  591   1          return err;
  592   1      }
  593          
@@ -634,11 +634,11 @@ line level    source
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =   2070    ----
+   CODE SIZE        =   2068    ----
    CONSTANT SIZE    =   ----    ----
    XDATA SIZE       =   ----      68
    PDATA SIZE       =   ----    ----
-C51 COMPILER V9.60.0.0   FM31256                                                           01/09/2026 10:30:25 PAGE 11  
+C51 COMPILER V9.60.0.0   FM31256                                                           01/28/2026 08:46:13 PAGE 11  
 
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----

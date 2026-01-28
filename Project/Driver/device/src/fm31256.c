@@ -576,7 +576,7 @@ uint8_t FM31256_WDG_Enable(uint8_t timeout) {
     uint8_t err;
 		uint8_t wdg_cfg;
     if (timeout > WDG_32S) return FM31256_ERR_PARAM;
-    wdg_cfg = 0x80 | (timeout & 0x07);	
+    wdg_cfg = 0x80 | timeout;	
 		err=FM31256_Reg_Write(FM31256_REG_WDT_CTRL,wdg_cfg);	
     return err;
 }
@@ -587,7 +587,7 @@ uint8_t FM31256_WDG_Enable(uint8_t timeout) {
  */
 uint8_t FM31256_WDG_Disable(void) {
     uint8_t err;	
-		err=FM31256_Reg_Write(FM31256_REG_WDT_CTRL,0x00);	
+		err=FM31256_Reg_Write(FM31256_REG_WDT_CTRL,0x14);	
     return err;
 }
 

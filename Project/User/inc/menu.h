@@ -41,6 +41,9 @@ typedef enum {
 	
 	  PASSWORD,//保护口令
     SAMPLING, //采样校准		
+		ERR,//报警
+		EVENT,//事件详情		
+		
 
 } MENU_ID;
 
@@ -57,6 +60,7 @@ typedef struct {
 	uint8_t switch_temp_flag;  // 新增：界面切换临时标记（0=无切换，1=待切换）
 	uint8_t timer_1s_flag;//1s时间到
 	uint8_t meter_data_flag;//数据更新
+	uint8_t flash;//闪烁计时  1s
 } MenuState;
 
 // 函数声明
@@ -70,6 +74,8 @@ void  menu_disp();
 void menu_init();
 
 /**********函数定义**********/
+
+void disp_two_digit(uint8_t num, uint16_t x, uint8_t y, uint8_t size, uint8_t inverse);
 void Main_Menu(uint8_t key_val);
 void Para_Menu(uint8_t key_val);
 void Protect_Menu(uint8_t key_val);
@@ -92,10 +98,14 @@ void Low_Disp(void);
 void Pass_Word(u8 key_val);
 void Sys_Static_Para_Set(u8 key_val);
 void Sampling(uint8_t key_val);
+void Err_Deal(uint8_t key_val);
+void Event_Detail_Menu(uint8_t key_val);
 extern MenuState menu_state; // 当前菜单状态
 
 extern char state;          // 
 extern char edit_col;          // 
 extern char item_id;        // 菜单项选项
 extern char item3;        // 菜单项选项
+extern char item1;        // 菜单项选项
+
 #endif /* __MENU_H__ */

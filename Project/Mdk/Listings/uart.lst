@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   UART                                                              01/09/2026 10:30:24 PAGE 1   
+C51 COMPILER V9.60.0.0   UART                                                              01/28/2026 08:24:07 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE UART
@@ -12,151 +12,317 @@ line level    source
    1          
    2          #include  "uart.h"
    3          #include  "modbus.h"
-   4          
+   4          #include <intrins.h>  // 包含_nop_()
    5          
-   6          extern volatile uint8_t modbus_rx_index ;
-   7          // 串口0初始化函数
-   8          void UART0_Init() {
-   9   1         uint32_t temp;
-  10   1         uint8_t th1_value;
-  11   1            // 停止定时器1
-  12   1          TR1 = 0;
-  13   1          // 1. 禁能UART0
-  14   1          SCON0 &= ~0x40; // 清除TI0和RI0标志位
-  15   1          SCON0 |= 0x10;  // 设置SM0=0, SM1=1 (8位UART模式)
-  16   1          
-  17   1          // 2. 配置波特率发生器
-  18   1           temp = (SYSCLK / (12 * 32 * uart_baudrate));
-  19   1           th1_value = 256 - (uint8_t)temp;
-  20   1          
-  21   1          TH1 = th1_value;  // 设置定时器1重载值
-  22   1          TL1 = th1_value;  // 设置定时器1初值
-  23   1          
-  24   1          // 3. 配置定时器1为模式2（8位自动重载）
-  25   1          TMOD &= ~0xF0; // 清除定时器1模式位
-  26   1          TMOD |= 0x20;  // 设置定时器1为模式2
-  27   1          
-  28   1          // 4. 启动定时器1
-  29   1          TR1 = 1;   // 启动定时器1
-  30   1          
-  31   1          // 5. 配置端口引脚
-  32   1      //    P0MDOUT |= 0x10;  // 设置P0.4为推挽输出
-  33   1      //    P0 |= 0x10;       // 设置P0.4为高电平
-  34   1      //    P0MDIN &= ~0x20;  // 设置P0.5为数字输入
-  35   1          
-  36   1          // 6. 使能串口中断
-  37   1          RI0 = 0;  // 清除接收中断标志
-  38   1          TI0 = 0;  // 清除发送中断标志
-  39   1      //    RCLK0 = 0; // 使用定时器1作为接收时钟
-  40   1      //    TCLK0 = 0; // 使用定时器1作为发送时钟
-  41   1          SSTA0=0x10;//清标志,使用定时器1
-  42   1          
-  43   1          // 7. 使能UART0接收
-  44   1          REN0 = 1;  // 允许接收
-  45   1      }
-  46          
-  47          
-  48          
-  49          // 串口发送一个字节
-  50          void UART0_SendByte(uint8_t dat) {
-  51   1          SBUF0 = dat;        // 将数据写入发送缓冲区
-  52   1          while(!TI0);        // 等待发送完成
-  53   1          TI0 = 0;            // 清除发送中断标志
-C51 COMPILER V9.60.0.0   UART                                                              01/09/2026 10:30:24 PAGE 2   
+   6          volatile uint8_t rx_buf[RX_BUF_SIZE];   /* 接收缓冲区 */
+   7          volatile uint8_t rx_state;              /* 接收状态：0=空闲，1=接收中，2=接收完成 */
+   8          volatile uint8_t rx_len;                /* 已接收字节数 */
+   9          volatile uint8_t rx_timeout_cnt;        /* 接收超时计数器（10ms递增） */
+  10          
+  11          /* 发送相关 */
+  12          volatile uint8_t tx_buf[TX_BUF_SIZE];   /* 发送缓冲区 */
+  13          volatile uint8_t tx_len;                /* 待发送字节数 */
+  14          volatile uint8_t tx_state;              /* 发送状态：0=空闲，1=发送中 */
+  15          volatile uint8_t tx_index;              /* 发送字节索引 */
+  16          volatile bit tx_complete_flag=0;
+  17          
+  18          // 串口0初始化函数
+  19          /* ==================== UART0初始化函数（动态波特率，C89格式） ==================== */
+  20          /* 
+  21           * @brief  UART0初始化（适配2400/4800/9600等波特率）
+  22           * @param  uart_baudrate：波特率（2400/4800/9600等）
+  23           * @note   基于定时器1模式2，SYSCLK需提前定义（如系统时钟，例：11059200UL）
+  24           */
+  25          void UART0_Init(uint32_t uart_baudrate) {
+  26   1          /* C89要求局部变量全部放在函数开头 */
+  27   1          unsigned char SFRPAGE_SAVE; 
+  28   1          uint32_t temp;
+  29   1          uint8_t th1_value;
+  30   1      
+  31   1          /* 1. 保存当前SFR页，避免影响其他模块 */
+  32   1          SFRPAGE_SAVE = SFRPAGE; 
+  33   1          SFRPAGE = UART0_PAGE;    
+  34   1      
+  35   1          /* 2. 停止定时器1，避免配置过程中触发 */
+  36   1          TR1 = 0;
+  37   1      
+  38   1          /* 3. 禁能UART0并配置工作模式 */
+  39   1      
+  40   1          SCON0 |= 0x50;  // 设置SM0=0, SM1=1 (8位UART模式)
+  41   1          
+  42   1          /* 4. 动态计算定时器1重载值（核心：根据传入的波特率计算） */
+  43   1          // 公式：temp = SYSCLK / (12 * 32 * 波特率)
+  44   1          // 注：SYSCLK需在代码中提前定义（如#define SYSCLK 11059200UL）
+  45   1          temp = (SYSCLK / (12UL * 32UL * uart_baudrate));
+  46   1          th1_value = 256 - (uint8_t)temp;
+  47   1          
+  48   1          TH1 = th1_value;  // 设置定时器1重载值
+  49   1      //    TL1 = th1_value;  // 设置定时器1初值
+  50   1          
+  51   1          /* 5. 配置定时器1为模式2（8位自动重载） */
+  52   1          TMOD |= 0x20;  // 设置定时器1为模式2
+  53   1          CKCON |= 0X00;   // 定时器1 使用Fosc/12（22.1184MHz/12=1.8432MHz）    
+C51 COMPILER V9.60.0.0   UART                                                              01/28/2026 08:24:07 PAGE 2   
 
-  54   1      }
-  55          
-  56          // 串口发送字符串
-  57          void UART0_SendString(const char* str) {
-  58   1          while(*str) {
-  59   2              UART0_SendByte(*str++);
-  60   2          }
-  61   1      }
-  62          
-  63          //// 串口发送十六进制数据
-  64          //void UART0_SendHex(uint8_t hex) {
-  65          //    uint8_t high = (hex >> 4) & 0x0F;
-  66          //    uint8_t low = hex & 0x0F;
-  67          //    
-  68          //    // 转换为十六进制字符
-  69          //    high = (high > 9) ? (high - 10 + 'A') : (high + '0');
-  70          //    low = (low > 9) ? (low - 10 + 'A') : (low + '0');
-  71          //    
-  72          //    UART0_SendByte(high);
-  73          //    UART0_SendByte(low);
-  74          //}
-  75          
-  76          //// 串口发送整数（十进制）
-  77          //void UART0_SendInt(int32_t num) {
-  78          //    if(num == 0) {
-  79          //        UART0_SendByte('0');
-  80          //        return;
-  81          //    }
-  82          //    
-  83          //    if(num < 0) {
-  84          //        UART0_SendByte('-');
-  85          //        num = -num;
-  86          //    }
-  87          //    
-  88          //    char buffer[12];
-  89          //    int i = 0;
-  90          //    
-  91          //    while(num > 0) {
-  92          //        buffer[i++] = (num % 10) + '0';
-  93          //        num /= 10;
-  94          //    }
-  95          //    
-  96          //    // 反向输出
-  97          //    while(i > 0) {
-  98          //        UART0_SendByte(buffer[--i]);
-  99          //    }
- 100          //}
- 101          
- 102          // 串口发送数据数组
- 103          void UART0_SendArray(uint8_t *send_data, uint8_t length) {
- 104   1          uint8_t i;
- 105   1          for(i = 0; i < length; i++) {
- 106   2              UART0_SendByte(send_data[i]);
- 107   2          }
- 108   1      }
- 109          
- 110          // 串口接收中断服务程序
- 111          void UART0_ISR() interrupt 4 {
- 112   1        uint8_t received_data;
- 113   1          if(RI0) {           // 接收中断
- 114   2              RI0 = 0;        // 清除接收中断标志
- 115   2               received_data = SBUF0;
-C51 COMPILER V9.60.0.0   UART                                                              01/09/2026 10:30:24 PAGE 3   
+  54   1          /* 6. 启动定时器1 */
+  55   1          TR1 = 1;   // 启动定时器1
+  56   1          
+  57   1          /* 7. 清除串口中断标志，配置SSTA0 */
+  58   1          RI0 = 0;  // 清除接收中断标志
+  59   1          TI0 = 0;  // 清除发送中断标志
+  60   1          SSTA0 = 0x00; // 清标志,使用定时器1 
+  61   1          
+  62   1          /* 8. 使能UART0接收 */
+  63   1          REN0 = 1;  // 允许接收
+  64   1          ES0=1;
+  65   1      
+  66   1      
+  67   1          /* 9. 切换到CONFIG_PAGE配置485 */
+  68   1          SFRPAGE = CONFIG_PAGE;  
+  69   1          TX_EN = 0; // 485初始化为接收模式
+  70   1      
+  71   1          /* 10. 恢复SFR页，初始化接收/发送状态 */
+  72   1          SFRPAGE = SFRPAGE_SAVE; 
+  73   1          rx_state = 0;
+  74   1          rx_len = 0;
+  75   1          rx_timeout_cnt = 0;
+  76   1          tx_state = 0;
+  77   1          tx_len = 0;
+  78   1          tx_index = 0;   
+  79   1      }
+  80          
+  81          
+  82          // 串口发送一个字节
+  83          void UART0_SendByte(uint8_t dat) {
+  84   1          unsigned char SFRPAGE_SAVE = SFRPAGE; 
+  85   1      
+  86   1         SFRPAGE = UART0_PAGE;   
+  87   1          SBUF0 = dat;        // 将数据写入发送缓冲区
+  88   1          while(!TI0);        // 等待发送完成
+  89   1          TI0 = 0;            // 清除发送中断标志
+  90   1         SFRPAGE=SFRPAGE_SAVE; 
+  91   1      }
+  92          
+  93          // 串口发送字符串
+  94          void UART0_SendString(const char* str) {
+  95   1          while(*str) {
+  96   2              UART0_SendByte(*str++);
+  97   2          }
+  98   1      }
+  99          
+ 100          //// 串口发送十六进制数据
+ 101          //void UART0_SendHex(uint8_t hex) {
+ 102          //    uint8_t high = (hex >> 4) & 0x0F;
+ 103          //    uint8_t low = hex & 0x0F;
+ 104          //    
+ 105          //    // 转换为十六进制字符
+ 106          //    high = (high > 9) ? (high - 10 + 'A') : (high + '0');
+ 107          //    low = (low > 9) ? (low - 10 + 'A') : (low + '0');
+ 108          //    
+ 109          //    UART0_SendByte(high);
+ 110          //    UART0_SendByte(low);
+ 111          //}
+ 112          
+ 113          //// 串口发送整数（十进制）
+ 114          //void UART0_SendInt(int32_t num) {
+ 115          //    if(num == 0) {
+C51 COMPILER V9.60.0.0   UART                                                              01/28/2026 08:24:07 PAGE 3   
 
- 116   2              
- 117   2              // 检查缓冲区是否已满
- 118   2              if(modbus_rx_index < MODBUS_RX_BUF_SIZE) {
- 119   3                  modbus_rx_buffer[modbus_rx_index++] = received_data;
- 120   3                  
- 121   3                  // 重置并启动超时计时器
- 122   3                  Modbus_StopTimeout();
- 123   3                  Modbus_StartTimeout();
- 124   3              } else {
- 125   3                  // 缓冲区溢出，重置
- 126   3                  modbus_rx_index = 0;
- 127   3                  Modbus_StopTimeout();
- 128   3              }
- 129   2          }
- 130   1          
- 131   1          if(TI0) {           // 发送中断
- 132   2              TI0 = 0;        // 清除发送中断标志
- 133   2          }
- 134   1      }
+ 116          //        UART0_SendByte('0');
+ 117          //        return;
+ 118          //    }
+ 119          //    
+ 120          //    if(num < 0) {
+ 121          //        UART0_SendByte('-');
+ 122          //        num = -num;
+ 123          //    }
+ 124          //    
+ 125          //    char buffer[12];
+ 126          //    int i = 0;
+ 127          //    
+ 128          //    while(num > 0) {
+ 129          //        buffer[i++] = (num % 10) + '0';
+ 130          //        num /= 10;
+ 131          //    }
+ 132          //    
+ 133          //    // 反向输出
+ 134          //    while(i > 0) {
+ 135          //        UART0_SendByte(buffer[--i]);
+ 136          //    }
+ 137          //}
+ 138          
+ 139          // 串口发送数据数组
+ 140          void UART0_SendArray(uint8_t *send_data, uint8_t length) {
+ 141   1          uint8_t i;
+ 142   1          for(i = 0; i < length; i++) {
+ 143   2              UART0_SendByte(send_data[i]);
+ 144   2          }
+ 145   1      }
+ 146          
+ 147          /* 全局发送相关变量（需在文件开头定义，C89格式） */
+ 148          
+ 149          
+ 150          
+ 151          ///* ==================== 启动非阻塞发送（主函数调用） ==================== */
+ 152          ///* 
+ 153          // * @brief  启动串口非阻塞发送（适配485）
+ 154          // * @param  buf：待发送数据缓冲区
+ 155          // * @param  len：待发送长度
+ 156          // * @return 0-成功，1-失败（正在发送/长度为0）
+ 157          // */
+ 158          //uint8_t UART0_Start_Send(uint8_t *buf, uint8_t len) {
+ 159          //    unsigned char SFRPAGE_SAVE = SFRPAGE; 
+ 160          //    uint8_t i=0;
+ 161          //    // 校验：正在发送/长度为0/缓冲区溢出，返回失败
+ 162          //    if(tx_state == 1 || len == 0 || len > TX_BUF_SIZE) {
+ 163          //        return 1;
+ 164          //    }
+ 165          
+ 166          //    SFRPAGE = UART0_PAGE; 
+ 167          //    EA = 0;  // 关总中断，避免拷贝数据时被中断打断
+ 168          //    // 1. 拷贝发送数据到tx_buf
+ 169          //    for( i=0; i<len; i++) {
+ 170          //        tx_buf[i] = buf[i];
+ 171          //    }
+ 172          //    tx_len = len;
+ 173          //    tx_index = 0;
+ 174          //    tx_state = 1;  // 标记为发送中
+ 175          //    EA = 1;  // 开总中断
+ 176          
+ 177          //    // 2. 置485为发送模式
+C51 COMPILER V9.60.0.0   UART                                                              01/28/2026 08:24:07 PAGE 4   
+
+ 178          //    TX_EN = 1;
+ 179          //    // 3. 发送第一个字节，触发发送中断
+ 180          //    SBUF0 = tx_buf[tx_index];
+ 181          
+ 182          //    SFRPAGE = SFRPAGE_SAVE;
+ 183          //    return 0;
+ 184          //}
+ 185          
+ 186          /* 极简版UART0_Start_Send（零拷贝专用，去掉拷贝循环） */
+ 187          uint8_t UART0_Start_Send(uint8_t len) {  // 仅传长度，不传buf
+ 188   1          unsigned char SFRPAGE_SAVE = SFRPAGE;
+ 189   1      
+ 190   1          /* 合法性校验 */
+ 191   1          if(tx_state == 1 || len == 0 || len > TX_BUF_SIZE) {
+ 192   2              return 1;
+ 193   2          }
+ 194   1      
+ 195   1          SFRPAGE = UART0_PAGE;
+ 196   1          EA = 0;
+ 197   1          tx_len = len;
+ 198   1          tx_index = 0;
+ 199   1          tx_state = 1;
+ 200   1          tx_complete_flag = 0;
+ 201   1          EA = 1;
+ 202   1      
+ 203   1          /* 切换485+发送第一个字节 */
+ 204   1          TX_EN = 1;
+ 205   1          _nop_();_nop_();_nop_();_nop_();
+ 206   1          SBUF0 = tx_buf[tx_index];
+ 207   1      
+ 208   1          SFRPAGE = SFRPAGE_SAVE;
+ 209   1          return 0;
+ 210   1      }
+ 211          
+ 212          // 对应修改Send_Response_ZeroCopy的最后一行：
+ 213          // UART0_Start_Send(len + 2);
+ 214          
+ 215          
+ 216          
+ 217          /* 串口波特率适配：以9600为例，1位起始+8位数据+1位停止=10位/字节
+ 218             200字节发送耗时：200*10/9600 ≈ 208ms，仪表场景完全可接受 */
+ 219          void UART0_SendBuf_Block(uint8_t *buf, uint8_t len) {
+ 220   1          unsigned char SFRPAGE_SAVE = SFRPAGE; 
+ 221   1          uint8_t i;
+ 222   1      
+ 223   1          if(len == 0 || buf == NULL) return;
+ 224   1      
+ 225   1          SFRPAGE = UART0_PAGE; 
+ 226   1          // 1. 切换485为发送模式，延时确保切换完成（关键）
+ 227   1          TX_EN = 1;
+ 228   1          _nop_();_nop_();_nop_();_nop_();  // 多延时几个周期，适配485芯片
+ 229   1      
+ 230   1          // 2. 阻塞发送所有字节（仅一次循环，无冗余拷贝）
+ 231   1          for(i = 0; i < len; i++) {
+ 232   2              SBUF0 = buf[i];        // 直接发送原缓冲区数据，无拷贝
+ 233   2              while(!TI0);           // 等待单字节发送完成
+ 234   2              TI0 = 0;               // 清标志
+ 235   2          }
+ 236   1      
+ 237   1          // 3. 发送完成后，延时再切换485为接收（避免最后一字节被截断）
+ 238   1          _nop_();_nop_();_nop_();_nop_();
+ 239   1          TX_EN = 0;
+C51 COMPILER V9.60.0.0   UART                                                              01/28/2026 08:24:07 PAGE 5   
+
+ 240   1      
+ 241   1          SFRPAGE = SFRPAGE_SAVE;
+ 242   1      }
+ 243          
+ 244          
+ 245          
+ 246          
+ 247          /* ==================== 串口中断服务函数（接收+非阻塞发送） ==================== */
+ 248          void UART_ISR(void) interrupt 4 {
+ 249   1          uint8_t temp_data;
+ 250   1          unsigned char SFRPAGE_SAVE = SFRPAGE; 
+ 251   1           
+ 252   1          SFRPAGE = UART0_PAGE;     
+ 253   1          // ========== 接收中断处理（原有逻辑，保留） ==========
+ 254   1          if(RI0) {
+ 255   2              RI0 = 0;  // 清接收标志
+ 256   2              temp_data = SBUF0;  // 读取接收数据
+ 257   2              
+ 258   2              if(rx_state == 1 && rx_len < RX_BUF_SIZE) {
+ 259   3                  rx_buf[rx_len] = temp_data;
+ 260   3                  rx_len++;
+ 261   3                  rx_timeout_cnt = 0;  // 接收数据，重置超时计数器
+ 262   3              } else if(rx_state == 0) {
+ 263   3                  // 首次接收数据，启动接收
+ 264   3                  rx_state = 1;
+ 265   3                  rx_len = 0;
+ 266   3                  rx_buf[rx_len] = temp_data;
+ 267   3                  rx_len++;
+ 268   3                  rx_timeout_cnt = 0;
+ 269   3              }
+ 270   2          }
+ 271   1          
+ 272   1          // ========== 发送中断处理（修正核心逻辑） ==========
+ 273   1          if(TI0) {
+ 274   2              TI0 = 0;  // 清发送标志
+ 275   2              
+ 276   2              // 仅当处于发送状态时，处理下一字节（关键！）
+ 277   2              if(tx_state == 1) {
+ 278   3                  tx_index++;  // 索引自增，指向下一字节
+ 279   3                  if(tx_index < tx_len) {
+ 280   4                      // 还有数据要发，发送下一字节
+ 281   4                      SBUF0 = tx_buf[tx_index];
+ 282   4                  } else {
+ 283   4                      // 发送完成：恢复485为接收模式，重置发送状态
+ 284   4                      TX_EN = 0;
+ 285   4                      tx_state = 0;
+ 286   4                      tx_index = 0;
+ 287   4                      tx_len = 0;
+ 288   4                      tx_complete_flag=1;
+ 289   4                  }
+ 290   3              }
+ 291   2              // 非发送状态：仅清标志，不做任何操作
+ 292   2          }
+ 293   1          SFRPAGE = SFRPAGE_SAVE;
+ 294   1      }
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =    262    ----
+   CODE SIZE        =    535    ----
    CONSTANT SIZE    =   ----    ----
-   XDATA SIZE       =   ----       6
+   XDATA SIZE       =    294      14
    PDATA SIZE       =   ----    ----
+C51 COMPILER V9.60.0.0   UART                                                              01/28/2026 08:24:07 PAGE 6   
+
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----
-   BIT SIZE         =   ----    ----
+   BIT SIZE         =      1    ----
    EDATA SIZE       =   ----    ----
    HDATA SIZE       =   ----    ----
    XDATA CONST SIZE =   ----    ----

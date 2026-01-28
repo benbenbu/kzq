@@ -44,7 +44,10 @@ extern const unsigned int HZK_COUNT;  // 声明为外部常量
 
 
 extern const u8  code  PICTURE[];  //互感器图	
-
+extern const u8  code  PICTURE0[];  //互感器图	
+extern const u8  code  PICTURE00[];  //互感器图	
+extern const u8  code  PICTURE01[];  //互感器图	
 extern const u8  code  PICTURE1[];//电容无填充	
+
 extern const u8  code  PICTURE2[];//电容无填充	
 #endif

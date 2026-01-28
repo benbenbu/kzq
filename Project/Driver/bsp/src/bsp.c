@@ -4,7 +4,7 @@
 #include "spi.h"
 #include "i2c.h"
 #include "time.h"
-
+#include "delay.h"
 //函数声明
 
 void ExternalClock_Init(void);
@@ -13,23 +13,26 @@ void Watchdog_Disable(void);
 void ADC0_Init(void);
 void Sys_Reset(void);
 
-
+void    Watchdog_Config();
 
 
 void  bsp_int()
 {
    ExternalClock_Init();
 	 Sys_Reset();
-	 Watchdog_Disable();
-	 SPI_Init();	
+    
+//   Watchdog_Config();
+
+
    Port_Init();
+	 SPI_Init();		
 	 ADC0_Init();
 	 I2C_Init();	
 	 Timer0_Init();//系统定时1ms
 	 Timer2_Init();//adc用10ms定时器	
 //	 Timer3_Init();//iic用25ms定时器
 
-
+	 Watchdog_Disable();
 }
 
 
@@ -63,37 +66,44 @@ void Sys_Reset(void)
 
 
 
-// 端口初始化
-void Port_Init() {
-  char SFRPAGE_SAVE = SFRPAGE; // 保存当前SFR页（C8051F多页寄存器机制）
-    SFRPAGE = CONFIG_PAGE;       // 切换到配置页（端口/交叉开关配置必须此页）
+void Port_Init(void) {
+    unsigned char SFRPAGE_SAVE = SFRPAGE; // 保存当前SFR页（C89兼容，char→unsigned char避免符号问题）
+    SFRPAGE = CONFIG_PAGE;               // 切换到配置页（端口/交叉开关配置必须此页）
 
-    // 1. 配置引脚输出方式（PnMDOUT）
+    // ========== 1. 配置引脚输出模式（PnMDOUT） ==========
+    // 原有配置保留
     P0MDOUT |= 0x95;  // P0.2(MOSI)、P0.4(SCK) 推挽输出,END输出，TX输出
+    P1MDOUT = 0xf7;   // P1口控制信号（RST/CD/CS0/WR/OE）=推挽（强驱动）
+    P2MDOUT = 0xFF;   // P2口数据总线=推挽（数据传输需强驱动）	
+    P3MDOUT |= 0xFF;  // P3口全推挽输出（保留原有配置）
 
-    P1MDOUT = 0xff;  // P1口控制信号（RST/CD/CS0/WR/OE）=推挽（强驱动）
-    P2MDOUT = 0xFF;  // P2口数据总线=推挽（数据传输需强驱动）	
-    P3MDOUT |= 0xFF;   // 
-    P4MDOUT |= 0xC0;   //
-		P4=0X3F;//P46，P47输出，其他输入
-    // 2. 配置交叉开关功能映射（XBR0/XBR1）
+    // 补充P4配置：P4.0~P4.5=输入（bit0~bit5=0）、P4.6~P4.7=输出（bit6~bit7=1）
+    P4MDOUT = 0xC0;   // 0xC0=11000000 → P4.6/P4.7推挽输出，其余输入
+    // P5/P6/P7全输出：推挽模式（0xFF=所有bit=1）
+    P5MDOUT = 0xFF;   // P5口全推挽输出
+    P6MDOUT = 0xFF;   // P6口全推挽输出
+    P7MDOUT = 0xFF;   // P7口全推挽输出
+
+    // ========== 2. 配置交叉开关功能映射（XBR0/XBR1/XBR2） ==========
     XBR0 = 0x07;      // 使能UART0(P0.0/P0.1)、SPI(P0.2/P0.3/P0.4)、IIC(P0.5/P0.6)
     XBR1 = 0x00;      // 无额外外设功能需要映射
+    XBR2 = 0x40;      // 使能交叉开关（XBARE=1）→ 所有GPIO功能生效的核心配置
 
-    // 3. 最后使能交叉开关（XBARE=1）
-    XBR2 = 0x40;      // 
-
-    // 4. 配置端口初始电平（避免上电后引脚电平不确定）
-    P0 |= 0x08;        // 设置P0.3 Miso为输入
-    P1 = 0X00;        // 控制信号初始低电平（可根据硬件需求调整，如RST需高电平则改为0xFF）
-    P2 = 0x00;        // 数据总线初始低电平（清空总线，避免误读）
-		P3 = 0X0f;
-
-    SFRPAGE = SFRPAGE_SAVE;      // 恢复原SFR页
+    // ========== 3. 配置端口初始电平（避免上电电平不确定） ==========
+    P0 |= 0x08;       // P0.3(MISO)设为输入电平（高阻）
+    P1 = 0X08;        // P1口控制信号初始低电平，p13输入
+    P2 = 0x00;        // P2口数据总线初始低电平
+    P3 = 0XFF;        // P3口初始电平（保留原有配置）
+    P4 = 0X3F;        // P4=00111111 → P4.0~P4.5=1（输入上拉）、P4.6~P4.7=0（输出低电平）
+    P5 = 0x00;        // P5口初始低电平（电容投切引脚初始复位）
+    P6 = 0x00;        // P6口初始低电平（电容投切引脚初始复位）
+    P7 = 0x00;        // P7口初始低电平（电容投切引脚初始复位）
+	  LED_RUN=0;
+    SFRPAGE = SFRPAGE_SAVE; // 恢复原SFR页（必须！否则后续寄存器操作会出错）
 }
 
 // 看门狗配置函数 - 设置溢出时间
-void Watchdog_Config(unsigned char timeout_setting)
+void Watchdog_Config()
 {
     // 设置看门狗超时间隔
     // 超时间隔 = 4^(3+WDTCN[2:0]) × TSYSCLK
@@ -103,15 +113,13 @@ void Watchdog_Config(unsigned char timeout_setting)
     // 注意：写入此值不会立即生效，需要喂狗命令才能生效
 	
 	
-    WDTCN = timeout_setting & 0x07;  // 只使用低3位设置超时间隔
+    WDTCN =  0x07;  // 只使用低3位设置超时间隔
 }
 
 // 看门狗使能函数 - 使能并配置看门狗
-void Watchdog_Enable(unsigned char timeout_setting)
+void Watchdog_Enable()
 {
-    // 先配置超时间隔
-    Watchdog_Config(timeout_setting);
-    
+    // 先配置超时间隔 
     // 然后使能看门狗（喂狗操作）
     WDTCN = 0xA5;  // 使能并重装载WDT
 }

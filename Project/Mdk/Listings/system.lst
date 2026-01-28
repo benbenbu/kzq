@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   SYSTEM                                                            01/09/2026 10:58:01 PAGE 1   
+C51 COMPILER V9.60.0.0   SYSTEM                                                            01/28/2026 08:24:05 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE SYSTEM
@@ -26,247 +26,410 @@ line level    source
   15          #include "HT7036.h"
   16          #include "time.h"
   17          #include "delay.h"
-  18          
-  19          //参数定义，系统用参数
-  20          
+  18          #include "data_deal.h"
+  19          #include "uart.h"
+  20          //参数定义，系统用参数
   21          
   22          
-  23          //参数定义，用户参数
-  24          
-  25           Date_Struct  system_date;
-  26           Time_Struct  system_time;
-  27           
-  28           Cap_Data  g_cap_data[4];
-  29           Sys_Data  g_sys_data;
-  30           SysHard_State  g_hard_state;
-  31          
-  32          void system_int()
-  33          {
-  34   1        char state=0; 
-  35   1        bsp_int();
-  36   1        state=Sys_Param_Init(); 
-  37   1        switch(state)
-  38   1        {
-  39   2          case 0: FM31256_RTC_Read_Date(&system_date); FM31256_RTC_Read_Time(&system_time);   break;
-  40   2      
-  41   2          case 1: BEEP=1; break;//iic错
-  42   2          case 2: BEEP=1; break;//无数据    
-  43   2        }
-  44   1        LCD_Init();
-  45   1        Bsp_InitKey();    
-  46   1        Ht7036_init() ;
-  47   1        menu_init();  
-  48   1        EA=1;
-  49   1      }
-  50          
-  51          
-  52          // 每隔1s读取一次时间
-  53          void Read_Time_Per_1s(void) {
-C51 COMPILER V9.60.0.0   SYSTEM                                                            01/09/2026 10:58:01 PAGE 2   
+  23          
+  24          //参数定义，用户参数
+  25          
+  26           Date_Struct  system_date;
+  27           Time_Struct  system_time;
+  28           
+  29          volatile   Cap_Data  g_cap_data[4];
+  30          volatile   Sys_Data  g_sys_data;
+  31           SysHard_State  g_hard_state;
+  32           
+  33          extern void Beep_Timer_Handler(void);
+  34          
+  35          void system_int()
+  36          {
+  37   1        char i=0; 
+  38   1        bsp_int();
+  39   1         Delay_ms(100);
+  40   1        i=Sys_Param_Init(); 
+  41   1        switch(i)
+  42   1        {
+  43   2          case 0: FM31256_RTC_Read_Date(&system_date); FM31256_RTC_Read_Time(&system_time);   break;
+  44   2      
+  45   2          case 1:  BEEP=0; break;//iic错
+  46   2          case 2:  BEEP=0; break;//无数据   
+  47   2        }
+  48   1        FM31256_WDG_Enable(WDG_2S);
+  49   1        UART0_Init(g_com.bps);
+  50   1        LCD_Init();
+  51   1        Bsp_InitKey();    
+  52   1        Ht7036_init() ;
+  53   1        menu_init();  
+C51 COMPILER V9.60.0.0   SYSTEM                                                            01/28/2026 08:24:05 PAGE 2   
 
-  54   1          static uint32_t last_read_time = 0;    // 【关键】记录上一次读取时间的时间戳，初始化为0
-  55   1          uint32_t current_time = Get_SystemTime();  // 安全读取当前时间戳
-  56   1          uint32_t time_diff = current_time - last_read_time;  // 无符号数自动处理溢出
-  57   1      
-  58   1          // 当时间差≥1000ms时，执行读取操作
-  59   1          if (time_diff >= 1000) {
-  60   2      
-  61   2            FM31256_RTC_Read_Date(&system_date);
-  62   2            FM31256_RTC_Read_Time(&system_time);      
-  63   2            last_read_time = current_time;
-  64   2            menu_state.timer_1s_flag = 1;
-  65   2          }
-  66   1      }
-  67          
-  68          
-  69          unsigned int g_adc_raw_values[ADC_SAMPLE_BUF_SIZE] = {0};
-  70          unsigned int g_adc_value = 0;
-  71          bit g_adc_data_valid  = 0;
-  72          static uint8_t s_adc_buf_index = 0;
-  73          uint8_t g_key_press_flag = 0;  // 1=有按键按下，0=无键
-  74          unsigned int s_LastAdcValue = 0;  // 新增：记录上一次有效ADC值
-  75          /*
-  76          *********************************************************************************************************
-  77          *   函 数 名: UpdateAdcFilter
-  78          *   功能说明: 优化的中值滤波（5点中值，抗干扰更强）
-  79          *********************************************************************************************************
-  80          */
-  81          static void UpdateAdcFilter(void) {
-  82   1          unsigned int temp;
-  83   1          // 核心修改：缓冲区改为static，避免栈溢出（51栈空间小）
-  84   1          static unsigned int buf[ADC_SAMPLE_BUF_SIZE];
-  85   1          uint8_t i,j;
-  86   1      
-  87   1          // 1. 复制数据（临界区：仅复制时关中断，排序不关）
-  88   1          EA = 0;
-  89   1          for ( i = 0; i < ADC_SAMPLE_BUF_SIZE; i++) {
-  90   2              buf[i] = g_adc_raw_values[i];
-  91   2          }
-  92   1          EA = 1; // 立即开中断，避免丢失ADC采样
-  93   1      
-  94   1          // 2. 冒泡排序（开中断执行，不影响采样）
-  95   1          for ( i = 0; i < ADC_SAMPLE_BUF_SIZE - 1; i++) {
-  96   2              for ( j = 0; j < ADC_SAMPLE_BUF_SIZE - i - 1; j++) {
-  97   3                  if (buf[j] > buf[j + 1]) {
-  98   4                      temp = buf[j];
-  99   4                      buf[j] = buf[j + 1];
- 100   4                      buf[j + 1] = temp;
- 101   4                  }
- 102   3              }
- 103   2          }
- 104   1      
- 105   1          // 3. 更新有效值（仅更新时关中断）
- 106   1          EA = 0;
- 107   1          g_adc_value = buf[ADC_SAMPLE_BUF_SIZE / 2];
- 108   1          g_adc_data_valid = 1;
- 109   1          EA = 1;
- 110   1      }
- 111          
- 112          void ADC0_ISR(void) interrupt 15 {
- 113   1          unsigned int val;
- 114   1           uint8_t is_valid_key_val = 0;
- 115   1          if (AD0INT) {
-C51 COMPILER V9.60.0.0   SYSTEM                                                            01/09/2026 10:58:01 PAGE 3   
+  54   1        g_sys_data.q=0;
+  55   1        g_sys_data.p=0; 
+  56   1        g_sys_data.i=0;
+  57   1        g_sys_data.u=0;
+  58   1        g_sys_data.c=0; 
+  59   1        g_cap_data[0].ia=0;
+  60   1        g_cap_data[0].ic=0;
+  61   1        g_cap_data[0].uo=0; 
+  62   1        
+  63   1        g_cap_data[1].ia=0;
+  64   1        g_cap_data[1].ic=0;
+  65   1        g_cap_data[1].uo=0; 
+  66   1      
+  67   1        g_cap_data[2].ia=0;
+  68   1        g_cap_data[2].ic=0;
+  69   1        g_cap_data[2].uo=0; 
+  70   1      
+  71   1        g_cap_data[3].ia=0;
+  72   1        g_cap_data[3].ic=0;
+  73   1        g_cap_data[3].uo=0; 
+  74   1        
+  75   1        g_all_io_state=0;
+  76   1        g_relay_state=0;
+  77   1        err_state=0;
+  78   1        com_led_flag=0;
+  79   1        com_led_timer=0;
+  80   1        for(i=0;i<6;i++)
+  81   1        {
+  82   2        g_sys_flag[i]=0;
+  83   2        }
+  84   1        EA=1;
+  85   1      }
+  86          
+  87          /**
+  88           * @brief 每日/每月清零投切次数（解决0点断电漏清零，适配两位数年份的Stat_date结构体）
+  89           * @note 1. 需在主循环/1s定时器中调用，依赖FM31256 RTC时钟；
+  90           *       2. 每次调用都判断跨日/跨月，断电后开机仍能补清零，不再局限0点0~1分；
+  91           *       3. 年份为两位数（00-99），无需转换，直接对比；
+  92           */
+  93          void cap_reset_daily_count(void)
+  94          {
+  95   1          // C89：所有局部变量前置声明
+  96   1          uint8_t curr_hour;
+  97   1          uint8_t curr_min;
+  98   1          uint8_t curr_day;
+  99   1          uint8_t curr_month;
+ 100   1          uint8_t curr_year;   // 两位数年份（00-99），直接使用
+ 101   1          uint8_t is_cross_day = 0;    // 标记：是否跨日
+ 102   1          uint8_t is_cross_month = 0;  // 标记：是否跨月
+ 103   1          uint8_t is_update_stat = 0;  // 标记：是否需要更新统计值到存储
+ 104   1          uint8_t is_update_date = 0;  // 标记：是否需要更新清零日期到存储
+ 105   1      
+ 106   1          // 1. 提取当前时间参数（适配新Stat_date结构体，年份直接用两位数）
+ 107   1          curr_hour = system_time.hour;   // 当前小时（0~23）
+ 108   1          curr_min = system_time.minute;  // 当前分钟（0~59）
+ 109   1          curr_day = system_date.day;     // 当前日期（1~31）
+ 110   1          curr_month = system_date.month; // 当前月份（1~12）
+ 111   1          curr_year = system_date.year;   // 两位数年份（如26=2026，00=2000）
+ 112   1      
+ 113   1          // ==================== 核心优化：每次调用都判断跨日/跨月，不局限0点窗口 ====================
+ 114   1          // 2.1 跨日判断（核心：当前日期≠清零日期 → 跨日，无论是否在0点窗口）
+ 115   1          if (curr_day != g_last_reset_date.day || 
+C51 COMPILER V9.60.0.0   SYSTEM                                                            01/28/2026 08:24:05 PAGE 3   
 
- 116   2              AD0INT = 0;
- 117   2              val = (unsigned int)ADC0H << 8 | ADC0L;
- 118   2      
- 119   2              // 新增：先判断当前值是否在任意按键阈值窗口内（快速筛选有效值）
- 120   2      
- 121   2              if ((val >= THRESHOLD_KEY0 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY0 + THRESHOLD_WINDOW) ||
- 122   2                  (val >= THRESHOLD_KEY1 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY1 + THRESHOLD_WINDOW) ||
- 123   2                  (val >= THRESHOLD_KEY2 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY2 + THRESHOLD_WINDOW) ||
- 124   2                  (val >= THRESHOLD_KEY3 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY3 + THRESHOLD_WINDOW) ||
- 125   2                  (val >= THRESHOLD_KEY4 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY4 + THRESHOLD_WINDOW) ||
- 126   2                  (val >= THRESHOLD_KEY5 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY5 + THRESHOLD_WINDOW)) {
- 127   3                  is_valid_key_val = 1;
- 128   3                  g_key_press_flag = 1;
- 129   3              } else {
- 130   3                  // 无键值：仅当按键标志已置1（松开阶段），才更新缓冲区（避免混值）
- 131   3                  if (g_key_press_flag == 0) {
- 132   4                      is_valid_key_val = 1;
- 133   4                  } else {
- 134   4                      // 按键松开：清空缓冲区，重置标志
- 135   4                      s_adc_buf_index = 0;
- 136   4                      g_key_press_flag = 0;
- 137   4                      return; // 丢弃松开阶段的过渡值
- 138   4                  }
- 139   3              }
- 140   2      
- 141   2              // 仅有效值才存入缓冲区
- 142   2              if (is_valid_key_val) {
- 143   3                  EA = 0;
- 144   3                  g_adc_raw_values[s_adc_buf_index] = val;
- 145   3                  s_adc_buf_index++;
- 146   3                  if (s_adc_buf_index >= ADC_SAMPLE_BUF_SIZE) {
- 147   4                      s_adc_buf_index = 0;
- 148   4                      UpdateAdcFilter();  // 缓冲区满则滤波
- 149   4                  }
- 150   3                  EA = 1;
- 151   3              }
- 152   2          }
- 153   1      }
- 154          
- 155          //static void UpdateAdcFilter(void) {
- 156          //    unsigned int temp;
- 157          //    static unsigned int buf[ADC_SAMPLE_BUF_SIZE];
- 158          //    uint8_t i,j;
- 159          //    unsigned long sum = 0;
- 160          //    unsigned int mid_avg;
- 161          //    // 1. 复制数据（临界区：仅复制时关中断）
- 162          //    EA = 0;
- 163          //    for ( i = 0; i < ADC_SAMPLE_BUF_SIZE; i++) {
- 164          //        buf[i] = g_adc_raw_values[i];
- 165          //    }
- 166          //    EA = 1; // 立即开中断，避免丢失10ms一次的ADC采样
- 167          
- 168          //    // 2. 冒泡排序（中值滤波基础）
- 169          //    for ( i = 0; i < ADC_SAMPLE_BUF_SIZE - 1; i++) {
- 170          //        for ( j = 0; j < ADC_SAMPLE_BUF_SIZE - i - 1; j++) {
- 171          //            if (buf[j] > buf[j + 1]) {
- 172          //                temp = buf[j];
- 173          //                buf[j] = buf[j + 1];
- 174          //                buf[j + 1] = temp;
- 175          //            }
- 176          //        }
- 177          //    }
-C51 COMPILER V9.60.0.0   SYSTEM                                                            01/09/2026 10:58:01 PAGE 4   
+ 116   1              curr_month != g_last_reset_date.month ||
+ 117   1              curr_year != g_last_reset_date.year) {
+ 118   2              is_cross_day = 1;
+ 119   2          }
+ 120   1      
+ 121   1          // 2.2 跨月判断（核心：当前月份≠清零月份 → 跨月，无论是否在0点窗口）
+ 122   1          if (curr_month != g_last_reset_date.month ||
+ 123   1              curr_year != g_last_reset_date.year) {
+ 124   2              is_cross_month = 1;
+ 125   2          }
+ 126   1      
+ 127   1          // ==================== 清零执行逻辑：分“窗口期优先”和“断电补清零” ====================
+ 128   1          if (is_cross_day || is_cross_month) {
+ 129   2              // 场景1：0点0~3分内（容错窗口扩大到3分钟）→ 正常清零（优先执行）
+ 130   2              // 场景2：非0点窗口但跨日/跨月（如0点1分断电，开机后9点调用）→ 补清零
+ 131   2              if ((curr_hour == 0 && curr_min <= 3) ||  // 优先窗口：0点0~3分（容错）
+ 132   2                  (curr_hour > 0 && is_cross_day) ||    // 补清零：跨日且过了0点（任意时间）
+ 133   2                  (curr_hour >= 0 && is_cross_month)) { // 补清零：跨月（任意时间）
+ 134   3      
+ 135   3                  // ① 日清零：跨日则清零（解决0点断电漏清零）
+ 136   3                  if (is_cross_day) {
+ 137   4                      g_stat.day_times_on = 0;    
+ 138   4                      g_stat.day_times_off = 0;   
+ 139   4                      is_update_stat = 1;
+ 140   4                  }
+ 141   3      
+ 142   3                  // ② 月清零：跨月则清零（无需判断1日，跨月即清零）
+ 143   3                  if (is_cross_month) {
+ 144   4                      g_stat.month_times_on = 0;  
+ 145   4                      g_stat.month_times_off = 0;
+ 146   4                      is_update_stat = 1;
+ 147   4                  }
+ 148   3      
+ 149   3                  // ③ 更新清零日期（完整覆盖新Stat_date结构体，含时分秒）
+ 150   3                  g_last_reset_date.year = curr_year;     // 两位数年份，直接赋值
+ 151   3                  g_last_reset_date.month = curr_month;
+ 152   3                  g_last_reset_date.day = curr_day;
+ 153   3                  g_last_reset_date.hour = curr_hour;     // 记录清零时的小时
+ 154   3                  g_last_reset_date.minute = curr_min;   // 记录清零时的分钟
+ 155   3                  g_last_reset_date.second = system_time.second; // 记录清零时的秒
+ 156   3                  is_update_date = 1;
+ 157   3              }
+ 158   2          }
+ 159   1      
+ 160   1          // ==================== 批量写入存储（避免重复擦写，保护存储芯片） ====================
+ 161   1          if (is_update_stat) {
+ 162   2              Set_Stat_Para(&g_stat);  // 统计值写入存储
+ 163   2          }
+ 164   1          if (is_update_date) {
+ 165   2              Set_Stat_Date(&g_last_reset_date); // 清零日期（含时分秒）写入存储
+ 166   2          }
+ 167   1      }
+ 168          // 每隔1s读取一次时间
+ 169          void Read_Time_Per_1s(void) {
+ 170   1          static uint32_t last_read_time = 0;    // 【关键】记录上一次读取时间的时间戳，初始化为0
+ 171   1          uint32_t current_time = Get_SystemTime();  // 安全读取当前时间戳
+ 172   1          uint32_t time_diff = current_time - last_read_time;  // 无符号数自动处理溢出
+ 173   1          // 当时间差≥100ms时，执行读取操作
+ 174   1          if (time_diff >= 100) {
+ 175   2      
+ 176   2            FM31256_RTC_Read_Date(&system_date);
+ 177   2            FM31256_RTC_Read_Time(&system_time);      
+C51 COMPILER V9.60.0.0   SYSTEM                                                            01/28/2026 08:24:05 PAGE 4   
 
- 178          
- 179          //    // 优化：中值+均值滤波（去掉最大/最小各1个，取中间6个均值，抗噪更强）
- 180          //    // 适配你的80窗口，过滤ADC随机噪声（±10~20LSB）
- 181          
- 182          //    for (i = 1; i < ADC_SAMPLE_BUF_SIZE - 1; i++) {
- 183          //        sum += buf[i];
- 184          //    }
- 185          //     mid_avg = sum / (ADC_SAMPLE_BUF_SIZE - 2);
+ 178   2            last_read_time = current_time;
+ 179   2            menu_state.timer_1s_flag = 1;
+ 180   2            menu_state.flash=!menu_state.flash;
+ 181   2            cap_reset_daily_count();
+ 182   2            cap_switch_delay_handler();     
+ 183   2            Beep_Timer_Handler();     
+ 184   2          }
+ 185   1      }
  186          
- 187          //    // 3. 更新有效值（仅更新时关中断）
- 188          //    EA = 0;
- 189          //    g_adc_value = mid_avg;  // 用均值替代单纯中值，避免单点噪声影响
- 190          //    s_LastAdcValue = g_adc_value; // 同步更新历史值
- 191          //    g_adc_data_valid = 1;
- 192          //    EA = 1;
- 193          //}
- 194          //void ADC0_ISR(void) interrupt 15 {
- 195          //    unsigned int val;
- 196          //    uint8_t is_valid_key_val = 0;
- 197          
- 198          //    if (AD0INT) {
- 199          //        AD0INT = 0;
- 200          //        val = (unsigned int)ADC0H << 8 | ADC0L;
- 201          
- 202          //        // 优化1：优先判断无键值（你的硬件无键值为4095，避免松开过渡值误判）
- 203          //        if (val < (NO_KEY_THRESHOLD )) {
- 204          //            // 无键值：清空缓冲区+重置标志，直接返回
- 205          //            s_adc_buf_index = 0;
- 206          //            g_key_press_flag = 0;
- 207          //            return;
- 208          //        }
- 209          
- 210          //        // 优化2：判断是否在你的6个按键阈值窗口内（保留你的原始逻辑）
- 211          //        if ((val >= THRESHOLD_KEY0 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY0 + THRESHOLD_WINDOW) ||
- 212          //            (val >= THRESHOLD_KEY1 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY1 + THRESHOLD_WINDOW) ||
- 213          //            (val >= THRESHOLD_KEY2 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY2 + THRESHOLD_WINDOW) ||
- 214          //            (val >= THRESHOLD_KEY3 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY3 + THRESHOLD_WINDOW) ||
- 215          //            (val >= THRESHOLD_KEY4 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY4 + THRESHOLD_WINDOW) ||
- 216          //            (val >= THRESHOLD_KEY5 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY5 + THRESHOLD_WINDOW)) {
- 217          //            is_valid_key_val = 1;
- 218          //            g_key_press_flag = 1;
- 219          //        } else {
- 220          //            // 非按键值：仅空闲状态才标记有效（避免混值）
- 221          //            if (g_key_press_flag == 0) {
- 222          //                is_valid_key_val = 1;
- 223          //            } else {
- 224          //                // 按键松开阶段：清空缓冲区，重置标志
- 225          //                s_adc_buf_index = 0;
- 226          //                g_key_press_flag = 0;
- 227          //                return; // 丢弃松开过渡值
- 228          //            }
- 229          //        }
+ 187          
+ 188          unsigned int g_adc_raw_values[ADC_SAMPLE_BUF_SIZE] = {0};
+ 189          unsigned int g_adc_value = 0;
+ 190          bit g_adc_data_valid  = 0;
+ 191          static uint8_t s_adc_buf_index = 0;
+ 192          uint8_t g_key_press_flag = 0;  // 1=有按键按下，0=无键
+ 193          unsigned int s_LastAdcValue = 0;  // 新增：记录上一次有效ADC值
+ 194          /*
+ 195          *********************************************************************************************************
+ 196          *   函 数 名: UpdateAdcFilter
+ 197          *   功能说明: 优化的中值滤波（5点中值，抗干扰更强）
+ 198          *********************************************************************************************************
+ 199          */
+ 200          static void UpdateAdcFilter(void) {
+ 201   1          unsigned int temp;
+ 202   1          // 核心修改：缓冲区改为static，避免栈溢出（51栈空间小）
+ 203   1          static unsigned int buf[ADC_SAMPLE_BUF_SIZE];
+ 204   1          uint8_t i,j;
+ 205   1      
+ 206   1          // 1. 复制数据（临界区：仅复制时关中断，排序不关）
+ 207   1          EA = 0;
+ 208   1          for ( i = 0; i < ADC_SAMPLE_BUF_SIZE; i++) {
+ 209   2              buf[i] = g_adc_raw_values[i];
+ 210   2          }
+ 211   1          EA = 1; // 立即开中断，避免丢失ADC采样
+ 212   1      
+ 213   1          // 2. 冒泡排序（开中断执行，不影响采样）
+ 214   1          for ( i = 0; i < ADC_SAMPLE_BUF_SIZE - 1; i++) {
+ 215   2              for ( j = 0; j < ADC_SAMPLE_BUF_SIZE - i - 1; j++) {
+ 216   3                  if (buf[j] > buf[j + 1]) {
+ 217   4                      temp = buf[j];
+ 218   4                      buf[j] = buf[j + 1];
+ 219   4                      buf[j + 1] = temp;
+ 220   4                  }
+ 221   3              }
+ 222   2          }
+ 223   1      
+ 224   1          // 3. 更新有效值（仅更新时关中断）
+ 225   1          EA = 0;
+ 226   1          g_adc_value = buf[ADC_SAMPLE_BUF_SIZE / 2];
+ 227   1          g_adc_data_valid = 1;
+ 228   1          EA = 1;
+ 229   1      }
  230          
- 231          //        // 仅有效值才存入缓冲区
- 232          //        if (is_valid_key_val) {
- 233          //            EA = 0;
- 234          //            g_adc_raw_values[s_adc_buf_index] = val;
- 235          //            s_adc_buf_index++;
- 236          //            if (s_adc_buf_index >= ADC_SAMPLE_BUF_SIZE) {
- 237          //                s_adc_buf_index = 0;
- 238          //                UpdateAdcFilter();  // 缓冲区满则滤波（80ms一次）
- 239          //            }
-C51 COMPILER V9.60.0.0   SYSTEM                                                            01/09/2026 10:58:01 PAGE 5   
+ 231          void ADC0_ISR(void) interrupt 15 {
+ 232   1          unsigned int val;
+ 233   1           uint8_t is_valid_key_val = 0;
+ 234   1      
+ 235   1            char SFRPAGE_SAVE = SFRPAGE; // Save Current SFR page
+ 236   1      
+ 237   1          SFRPAGE = ADC0_PAGE;
+ 238   1          if (AD0INT) {
+ 239   2              AD0INT = 0;
+C51 COMPILER V9.60.0.0   SYSTEM                                                            01/28/2026 08:24:05 PAGE 5   
 
- 240          //            EA = 1;
- 241          //        }
- 242          //    }
- 243          //}
- 244          
+ 240   2              val = (unsigned int)ADC0H << 8 | ADC0L;
+ 241   2            
+ 242   2          SFRPAGE =SFRPAGE_SAVE;
+ 243   2      
+ 244   2              // 新增：先判断当前值是否在任意按键阈值窗口内（快速筛选有效值）
+ 245   2      
+ 246   2              if ((val >= THRESHOLD_KEY0 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY0 + THRESHOLD_WINDOW) ||
+ 247   2                  (val >= THRESHOLD_KEY1 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY1 + THRESHOLD_WINDOW) ||
+ 248   2                  (val >= THRESHOLD_KEY2 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY2 + THRESHOLD_WINDOW) ||
+ 249   2                  (val >= THRESHOLD_KEY3 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY3 + THRESHOLD_WINDOW) ||
+ 250   2                  (val >= THRESHOLD_KEY4 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY4 + THRESHOLD_WINDOW) ||
+ 251   2                  (val >= THRESHOLD_KEY5 - THRESHOLD_WINDOW && val <= THRESHOLD_KEY5 + THRESHOLD_WINDOW)) {
+ 252   3                  is_valid_key_val = 1;
+ 253   3                  g_key_press_flag = 1;
+ 254   3              } else {
+ 255   3                  // 无键值：仅当按键标志已置1（松开阶段），才更新缓冲区（避免混值）
+ 256   3                  if (g_key_press_flag == 0) {
+ 257   4                      is_valid_key_val = 1;
+ 258   4                  } else {
+ 259   4                      // 按键松开：清空缓冲区，重置标志
+ 260   4                      s_adc_buf_index = 0;
+ 261   4                      g_key_press_flag = 0;
+ 262   4                      return; // 丢弃松开阶段的过渡值
+ 263   4                  }
+ 264   3              }
+ 265   2      
+ 266   2              // 仅有效值才存入缓冲区
+ 267   2              if (is_valid_key_val) {
+ 268   3                  EA = 0;
+ 269   3                  g_adc_raw_values[s_adc_buf_index] = val;
+ 270   3                  s_adc_buf_index++;
+ 271   3                  if (s_adc_buf_index >= ADC_SAMPLE_BUF_SIZE) {
+ 272   4                      s_adc_buf_index = 0;
+ 273   4                      UpdateAdcFilter();  // 缓冲区满则滤波
+ 274   4                  }
+ 275   3                  EA = 1;
+ 276   3              }
+ 277   2          }
+ 278   1          SFRPAGE =SFRPAGE_SAVE;
+ 279   1      }
+ 280          
+ 281          //tyep:0 液晶输出  1：输入检测
+ 282          void change_io(uint8_t type)
+ 283          
+ 284          {
+ 285   1          unsigned char SFRPAGE_SAVE = SFRPAGE; // 保存当前SFR页（C89兼容，char→unsigned char避免符号问题）
+ 286   1          SFRPAGE = CONFIG_PAGE;               // 切换到配置页（端口/交叉开关配置必须此页）
+ 287   1          if(type)
+ 288   1          {
+ 289   2          LVC245_OE =1;
+ 290   2          P2MDOUT = 0x00;   // P2口数据总线输入
+ 291   2          P2=0XFF;  
+ 292   2            
+ 293   2          }
+ 294   1          else
+ 295   1          {
+ 296   2          LVC245_OE=0;
+ 297   2          P2MDOUT = 0xff;   // P2口数据总线=推挽（数据传输需强驱动）      
+ 298   2      
+ 299   2          }
+ 300   1      
+ 301   1      
+C51 COMPILER V9.60.0.0   SYSTEM                                                            01/28/2026 08:24:05 PAGE 6   
+
+ 302   1          SFRPAGE = SFRPAGE_SAVE; // 恢复原SFR页（必须！否则后续寄存器操作会出错）
+ 303   1      }
+ 304          
+ 305          
+ 306          
+ 307          
+ 308          
+ 309          
+ 310          // 关键配置（适配交直流光耦，多数表决逻辑）
+ 311          #define IO_NUM             11      // 检测的IO总数（I1~I11）
+ 312          #define IO_VALID_LEVEL     0       // 输入有效电平（光耦导通=低电平）
+ 313          #define DETECT_INTERVAL_MS 50      // 检测间隔（50ms/次，主循环/定时器调用）
+ 314          #define VOTE_WINDOW_SIZE   5       // 表决窗口：最近5次检测结果
+ 315          #define VOTE_THRESHOLD     3       // 多数表决阈值：≥3次一致则确认状态
+ 316          #define HIGH_LEVEL         1       // 高电平标记
+ 317          #define LOW_LEVEL          0       // 低电平标记
+ 318          
+ 319          
+ 320          // 全局IO状态（最终确认的稳定状态，供其他模块使用）
+ 321          volatile uint16_t g_all_io_state = 0;
+ 322          
+ 323          /**
+ 324           * @brief  读取所有11个输入IO状态（交直流光耦通用，5次3次多数表决，抗交流零点波动）
+ 325           * @note   主循环/定时器50ms调用1次，仅写满5次缓冲区后才表决，避免单次执行触发状态变化
+ 326           * @retval 无
+ 327           */
+ 328          void Read_All_IO_State(void)
+ 329          {
+ 330   1          // 1. 静态变量扩展：增加缓冲区写满标记（每个IO独立）
+ 331   1          static uint8_t io_history[IO_NUM][VOTE_WINDOW_SIZE] = {0};    // 每个IO最近5次电平
+ 332   1          static uint8_t io_ptr[IO_NUM] = {0};                          // 每个IO的缓冲区指针（0~4）
+ 333   1          static uint8_t io_buf_full[IO_NUM] = {0};                     // 0=未写满，1=已写满5次
+ 334   1          // 2. 临时变量
+ 335   1          uint8_t io_level[IO_NUM] = {0};    // 每个IO的当前原始电平（0=低，1=高）
+ 336   1          uint8_t high_count, low_count;     // 每个IO的高/低电平计数
+ 337   1          uint8_t i, j;                      // 循环变量
+ 338   1          unsigned char SFRPAGE_SAVE = SFRPAGE; // 51单片机SFR页保护（C89兼容）
+ 339   1          uint16_t io_state_bit = 0;    
+ 340   1      
+ 341   1          // ========== 步骤1：读取原始IO电平（光耦实时状态，含交流波动） ==========
+ 342   1          SFRPAGE = CONFIG_PAGE;  // 切换到配置页（根据硬件调整）
+ 343   1          // 逐个读取I1~I11的原始电平，转换为0（低）/1（高）
+ 344   1          io_level[0] = (I1 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I1
+ 345   1          io_level[1] = (I2 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I2
+ 346   1          io_level[2] = (I3 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I3
+ 347   1          io_level[3] = (I4 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I4
+ 348   1          io_level[4] = (I5 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I5
+ 349   1          io_level[5] = (I6 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I6
+ 350   1          io_level[6] = (I7 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I7
+ 351   1          io_level[7] = (I8 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I8
+ 352   1          io_level[8] = (I9 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;   // I9
+ 353   1          io_level[9] = (I10 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL;  // I10
+ 354   1          io_level[10] = (I11 == IO_VALID_LEVEL) ? LOW_LEVEL : HIGH_LEVEL; // I11
+ 355   1          SFRPAGE = SFRPAGE_SAVE; // 恢复SFR页（必须，防止后续寄存器操作出错）
+ 356   1      
+ 357   1          // ========== 步骤2：每个IO独立更新历史缓冲区（环形） ==========
+ 358   1          for (i = 0; i < IO_NUM; i++)
+ 359   1          {
+ 360   2              // 写入当前电平到环形缓冲区（覆盖最旧的记录）
+ 361   2              io_history[i][io_ptr[i]] = io_level[i];
+ 362   2              // 指针循环（0→1→2→3→4→0）
+ 363   2              io_ptr[i] = (io_ptr[i] + 1) % VOTE_WINDOW_SIZE;
+C51 COMPILER V9.60.0.0   SYSTEM                                                            01/28/2026 08:24:05 PAGE 7   
+
+ 364   2      
+ 365   2              // ========== 步骤3：标记缓冲区是否写满（仅第一次写满时置1） ==========
+ 366   2              if (io_ptr[i] == 0 && io_buf_full[i] == 0)
+ 367   2              {
+ 368   3                  io_buf_full[i] = 1; // 指针回到0，说明已写满5次，标记为完成初始化
+ 369   3              }
+ 370   2      
+ 371   2              // ========== 步骤4：仅缓冲区写满后，才进行多数表决 ==========
+ 372   2              if (io_buf_full[i] == 0)
+ 373   2              {
+ 374   3                  continue; // 未写满5次，跳过表决，全局状态保持不变
+ 375   3              }
+ 376   2      
+ 377   2              // ========== 步骤5：多数表决（统计最近5次中的高/低次数） ==========
+ 378   2              high_count = 0;
+ 379   2              low_count = 0;
+ 380   2              for (j = 0; j < VOTE_WINDOW_SIZE; j++)
+ 381   2              {
+ 382   3                  if (io_history[i][j] == HIGH_LEVEL)
+ 383   3                      high_count++;
+ 384   3                  else
+ 385   3                      low_count++;
+ 386   3              }
+ 387   2      
+ 388   2              // ========== 步骤6：根据表决结果更新全局状态 ==========
+ 389   2              // 全局状态位映射：I1→IO1_STATE(bit0)，I2→IO2_STATE(bit1)...I11→IO11_STATE(bit10)
+ 390   2              io_state_bit = (1 << i);
+ 391   2              if (low_count >= VOTE_THRESHOLD)
+ 392   2              {
+ 393   3                  // 多数为低电平（光耦导通，有输入）→ 置位全局状态
+ 394   3                  g_all_io_state |= io_state_bit;
+ 395   3              }
+ 396   2              else if (high_count >= VOTE_THRESHOLD)
+ 397   2              {
+ 398   3                  // 多数为高电平（光耦断开，无输入）→ 清零全局状态
+ 399   3                  g_all_io_state &= ~io_state_bit;
+ 400   3              }
+ 401   2              // 若高/低都不足3次（如2高3低则走low分支，2低3高走high分支；若2高2低1未知，保持原状态）
+ 402   2          }
+ 403   1      }
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =    618    ----
-   CONSTANT SIZE    =   ----    ----
-   XDATA SIZE       =    122      11
+   CODE SIZE        =   1735    ----
+   CONSTANT SIZE    =     11    ----
+   XDATA SIZE       =    203      29
    PDATA SIZE       =   ----    ----
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----

@@ -1,0 +1,1 @@
+"..\Driver\device\src\fm31256.c" LARGE OMF2 OPTIMIZE (5,SIZE) BROWSE NOINTPROMOTE INCDIR(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings\fm31256.lst) TABS (2) OBJECT(.\Objects\fm31256.obj)

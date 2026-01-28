@@ -77,13 +77,14 @@ void menu_disp()
     if (menu_state.id != METER_DISP)
     { // 非计量界面
       // 计算无按键时长（uint32_t避免溢出）
-      if ((uint32_t)(menu_current_time - menu_last_time) > 180000L)
+      if ((uint32_t)(menu_current_time - menu_last_time) > 18000L)
       {
         // 超时：强制切回计量界面
         menu_state.id = METER_DISP;
         menu_state.switch_temp_flag = 1;    // 标记切换，保证返回后刷新
         menu_last_time = menu_current_time; // 重置超时时间戳
         LCD_Clear();                        // 清屏，避免界面残留
+				g_adjust=0;
 				item_id = 1;
 				item1 = 1;
 				item2 = 1;
@@ -100,7 +101,7 @@ void menu_disp()
   }
 
   // ========== 第四步：处理定时/数据更新刷新（计量界面专属，原有逻辑保留） ==========
-  if (menu_state.id == METER_DISP)
+  if ((menu_state.id == METER_DISP)||(menu_state.id == SAMPLING))
   {
     // 1s定时刷新
     if (menu_state.timer_1s_flag == 1)
@@ -189,6 +190,13 @@ void menu_disp()
     case SAMPLING:		
 	   Sampling( key_val);		
 		break;
+    case ERR:		
+	   Err_Deal( key_val);		
+		break;		
+	    case EVENT:		
+	   Event_Detail_Menu( key_val);		
+		break;		
+		
     }
     Low_Disp();
     menu_state.refresh_flag = 0;
@@ -353,7 +361,8 @@ void cap_disp(uint8_t type)
 
   uint8_t x = 21;
   uint8_t y = 60;
-  uint8_t i;
+  uint8_t i,j;
+	
   switch (g_cap_num.cap_num)
   {
   case 1:
@@ -387,36 +396,98 @@ void cap_disp(uint8_t type)
       if (i == 0)
       {
         if (type)
+				{
           LCD_DisplayString(x - 21, 68, "C1", 16, 0);
+	
+				if((g_sys_flag[2]&CAP1_REFUSE_CHARGE)||(g_sys_flag[3]&CAP1_REFUSE_DISCHARGE)||(g_sys_flag[3]&CAP1_EXTERNAL_FAULT))
+				{
+				 if(menu_state.flash)
+				 j=1;
+				 else
+				 j=0;			 
+				}
+				else
+				 j=0;			
+				
+						
+					
+				}
         else
           LCD_DisplayString(x, 90, "C1", 16, 0);
       }
       if (i == 1)
       {
         if (type)
+				{
           LCD_DisplayString(x - 21, 68, "C2", 16, 0);
+				if((g_sys_flag[2]&CAP2_REFUSE_CHARGE)||(g_sys_flag[3]&CAP2_REFUSE_DISCHARGE)||(g_sys_flag[3]&CAP2_EXTERNAL_FAULT))
+				{
+				 if(menu_state.flash)
+				 j=1;
+				 else
+				 j=0;			 
+				}
+				else
+				 j=0;							
+					
+					
+				}
         else
           LCD_DisplayString(x, 90, "C2", 16, 0);
       }
       if (i == 2)
       {
         if (type)
+				{
           LCD_DisplayString(x - 21, 68, "C3", 16, 0);
+				if((g_sys_flag[3]&CAP3_REFUSE_CHARGE)||(g_sys_flag[3]&CAP3_REFUSE_DISCHARGE)||(g_sys_flag[4]&CAP4_EXTERNAL_FAULT))
+				{
+				 if(menu_state.flash)
+				 j=1;
+				 else
+				 j=0;			 
+				}
+				else
+				 j=0;						
+				}
         else
           LCD_DisplayString(x, 90, "C3", 16, 0);
       }
       if (i == 3)
       {
         if (type)
+				{
           LCD_DisplayString(x - 21, 68, "C4", 16, 0);
+					if((g_sys_flag[3]&CAP4_REFUSE_CHARGE)||(g_sys_flag[3]&CAP4_REFUSE_DISCHARGE)||(g_sys_flag[4]&CAP4_EXTERNAL_FAULT))
+				{
+				 if(menu_state.flash)
+				 j=1;
+				 else
+				 j=0;			 
+				}
+				else
+				 j=0;					
+				}
         else
           LCD_DisplayString(x, 90, "C4", 16, 0);
       }
-    }
+    }		
+				 if(j)
+				 LCD_DisplayString(x + 21, 58, "x", 8, 0);
+				 else
+				 LCD_DisplayString(x + 21, 58, " ", 8, 0);			 
+	
+		
     x = x + y;
   }
 
-  LCD_DisplayBpm(111, 0, 48, PICTURE);
+  LCD_DisplayBpm(111, 0, 27, PICTURE);
+  if(g_all_io_state	&I10)
+  LCD_DisplayBpm(111, 27, 18, PICTURE00);
+  else
+  LCD_DisplayBpm(111, 27, 18, PICTURE0);		
+  LCD_DisplayBpm(111, 45, 3, PICTURE01);	
+	
   LCD_DisplayLine(30, 48, 210, 1);
 }
 
@@ -599,31 +670,40 @@ uint8_t Cap_CheckAllEnabledValueEqual(Cap_Para_Struct *cap_array, uint8_t n)
 void Meter_Disp(uint8_t key_val)
 {
   uint8_t str[20];
-  uint16_t dat;
-  uint8_t uint, f;
+
   uint8_t x, y, i;
-  meter_data(g_meter_chip[3].rp, 1, &dat, &uint, &f);
-  data_disp(dat, uint, f, 1, str);
+
+  data_disp(g_sys_data.q ,1,str);
 
   LCD_DisplayString(0, 0, str, 8, 0);
 
-  meter_data(g_meter_chip[3].u_a, 2, &dat, &uint, &f);
-  data_disp(dat, uint, f, 2, str);
+
+  data_disp(g_sys_data.p ,2,str);
 
   LCD_DisplayString(0, 9, str, 8, 0);
 
-  meter_data(g_meter_chip[3].i_a, 3, &dat, &uint, &f);
-  data_disp(dat, uint, f, 3, str);
+  data_disp(g_sys_data.u ,3,str);
 
   LCD_DisplayString(0, 18, str, 8, 0);
+	
+	
+	if((g_sys_flag[2]&SYS_OVER_VOLTAGE)||(g_sys_flag[2]&SYS_UNDER_VOLTAGE))
+	{
+	 if(menu_state.flash)
+   LCD_DisplayString(78, 18, "x", 8, 0);
+	 else
+   LCD_DisplayString(78, 18, " ", 8, 0);			 
+	}
+	else
+   LCD_DisplayString(78, 18, " ", 8, 0);		
+	
+	
 
-  meter_data(g_meter_chip[3].rq, 4, &dat, &uint, &f);
-  data_disp(dat, uint, f, 4, str);
+  data_disp(g_sys_data.i,4, str);
 
   LCD_DisplayString(0, 27, str, 8, 0);
 
-  meter_data(g_meter_chip[3].rq, 5, &dat, &uint, &f);
-  data_disp(dat, uint, f, 5, str);
+  data_disp(g_sys_data.c ,5,str);
 
   LCD_DisplayString(0, 36, str, 8, 0);
 
@@ -652,27 +732,90 @@ void Meter_Disp(uint8_t key_val)
   {
     cap_data_disp(i, 1, g_cap_data[i - 1].ia, 0, str);
     LCD_DisplayString(x, 86, str, 8, 0);
+		
+		if((g_sys_flag[0]&(0x01<<(i-1)))||(g_sys_flag[1]&(0x01<<(i-1))))
+		{
+		 if(menu_state.flash)
+		 LCD_DisplayString(x+54, 86, "x", 8, 0);
+		 else
+		 LCD_DisplayString(x+54, 86, " ", 8, 0);			 
+		}
+		else
+		 LCD_DisplayString(x+54, 86, " ", 8, 0);			
+		
     cap_data_disp(i, 2, g_cap_data[i - 1].ic, 0, str);
     LCD_DisplayString(x, 94, str, 8, 0);
+		
+		if((g_sys_flag[0]&(0x10<<(i-1)))||(g_sys_flag[1]&(0x10<<(i-1))))
+		{
+		 if(menu_state.flash)
+		 LCD_DisplayString(x+54, 94, "x", 8, 0);
+		 else
+		 LCD_DisplayString(x+54, 94, " ", 8, 0);			 
+		}
+		else
+		 LCD_DisplayString(x+54, 94, " ", 8, 0);			
+		
+		
     cap_data_disp(i, 3, g_cap_data[i - 1].uo, 1, str);
     LCD_DisplayString(x, 102, str, 8, 0);
+		
+		if(g_sys_flag[2]&(0x01<<(i-1)))
+		{
+		 if(menu_state.flash)
+		 LCD_DisplayString(x+54, 102, "x", 8, 0);
+		 else
+		 LCD_DisplayString(x+54, 102, " ", 8, 0);			 
+		}
+		else
+		 LCD_DisplayString(x+54, 102, " ", 8, 0);			
+		
     x = x + y;
   }
   
   cap_disp(g_cap_num.pro_num);
+	
+	
+	if((g_cap_switch_state.pending_cmd==1)||(g_cap_switch_state.pending_cmd==2))
+	{
+	  LCD_DisplayNum(201, 8, g_cap_switch_state.delay_remaining, 16, 3,  0xff, 0, 1);
+	
+			if(g_cap_switch_state.pending_cmd==1)
+			{
+	    LCD_DisplayString(210, 24, "投", 16, 0);			
+			}
+			else
+			{
+			
+       LCD_DisplayString(210, 24, "切", 16, 0);				
+			}
+		
+	}
+  else
+	{
+    LCD_DisplayString(201, 8, "   ", 16, 0);	
+	
+    LCD_DisplayString(210, 24, "  ", 16, 0);			
+	}		
+	
+
+	
+	
 
   switch (key_val)
   {
-  case KEY_0_UP: // 上：同列上移，循环
 
-    break;
-
-  case KEY_1_UP: // 下：同列下移，循环
-
-    break;
 
   case KEY_2_UP: // 左键
+    menu_state.id = ADJUST_CAP;
+    menu_state.switch_temp_flag = 1;
+    LCD_Clear();		
 
+    break;
+  case KEY_3_UP: // 右键
+    menu_state.id = EVENT_LOG;
+    menu_state.switch_temp_flag = 1;
+    LCD_Clear();		
     break;
 
   case KEY_4_UP:
@@ -680,7 +823,16 @@ void Meter_Disp(uint8_t key_val)
     menu_state.switch_temp_flag = 1;
     LCD_Clear();
     return;
+	  break;
   case KEY_5_UP:
+		if(err_state)
+		{
+    menu_state.id = ERR;
+    menu_state.switch_temp_flag = 1;
+    LCD_Clear();			
+		}
+		return;
+		break;
   default:
     break;
   }
@@ -693,17 +845,26 @@ void Low_Disp(void)
     LCD_DisplayLine(0, 110, 240, 0);
   if ((menu_state.id == METER_DISP) || (menu_state.id == SYSTEM_SETTING) || (menu_state.id == MAIN_MENU) || (menu_state.id == PARAM_SETTING) || (menu_state.id == PROT_PARAM)\ 
 		|| (menu_state.id == DATA_STATISTICS) || (menu_state.id == EVENT_LOG) || (menu_state.id == PASSWORD) || (menu_state.id == SAMPLING_CALIBRATION)|| (menu_state.id == STATISTIC_PARAM)\
-	|| (menu_state.id == SAMPLING))
+	|| (menu_state.id == SAMPLING)|| (menu_state.id == ERR)|| (menu_state.id == EVENT))
   {
     LCD_DisplayString(129, 112, "时间", 16, 0);
     time_disp(system_date, system_time, 171, 112);
+		
+		
+    if(g_all_io_state&IO9_STATE)	
+		{
+		
+      LCD_DisplayString(6, 112, "手动", 16, 0);		
+		}			
 
-    if (g_adjust_cap.mode)
+    else if (g_adjust_cap.mode)
     {
-      LCD_DisplayString(6, 112, "手动", 16, 0);
+      LCD_DisplayString(6, 112, "调试", 16, 0);
     }
     else
       LCD_DisplayString(6, 112, "自动", 16, 0);
+		
+		
   }
 }
 
@@ -1434,7 +1595,7 @@ void System_Setting(u8 key_val)
 /*********电容调试设置菜单部分********/
 void Cap_Adjust(u8 key_val)
 {
-  static u8 var1; // 临时变量
+  static AutoManual_Para_Struct var1; // 临时变量
   u8 j, k,x,y;
 
   code const char *g_Cap_titles[4] = {
@@ -1448,14 +1609,15 @@ void Cap_Adjust(u8 key_val)
 
   if (state == 0) // 第一次进入界面，系统变量赋值到临时变量,浏览模式，编辑坐标为0xff
   {
-    var1 = g_adjust_cap.mode;
+    var1.mode = g_adjust_cap.mode;
     switch (key_val)
     {
 
     case KEY_4_UP:
       state = 1;
-      g_adjust_cap.mode = var1;
+//      g_adjust_cap.mode = var1;
 		  edit_col=0;
+		  
       break;
 
     case KEY_5_UP:
@@ -1474,20 +1636,28 @@ void Cap_Adjust(u8 key_val)
     {
     case KEY_0_UP:
     case KEY_1_UP:
-      if (var1 == 0)
-        var1 = 1;
+      if (var1.mode == 0)
+        var1.mode = 1;
       else
-        var1 = 0;
+        var1.mode = 0;
       break;
     case KEY_4_UP: // 确认键进入调试
 
-		  
-      if(Set_AutoManual_Para(&g_adjust_cap))
+		    if(g_all_io_state&IO9_STATE)	
+				{
+				  state=0;
+				
+				}					
+		else
+		{
+
+      if(Set_AutoManual_Para(&var1))
 			{
 				g_hard_state.iic_err_times++;				
 			}
 			else
-       g_adjust_cap.mode = var1;				
+			{
+       g_adjust_cap.mode = var1.mode;				
       if (g_adjust_cap.mode)
       {
         LCD_Clear();
@@ -1495,6 +1665,7 @@ void Cap_Adjust(u8 key_val)
       }
       else
         state = 0;
+		}
       for (j = 0; j < g_cap_num.cap_num; j++)
       {
         if (g_cap[j].onf)
@@ -1503,6 +1674,7 @@ void Cap_Adjust(u8 key_val)
           break;
         }
       }
+		}
       break;
 
     case KEY_5_UP:
@@ -1563,9 +1735,31 @@ void Cap_Adjust(u8 key_val)
       break;
     case KEY_4_UP:
       if (g_cap[edit_col-1].state)
-        g_cap[edit_col-1].state = 0;
+			{
+            switch (edit_col) {
+                case 1: g_relay_state |= CAP1_OFF; break;
+                case 2: g_relay_state |= CAP2_OFF; break;
+                case 3: g_relay_state |= CAP3_OFF; break;
+                case 4: g_relay_state |= CAP4_OFF; break;
+                default: break;
+            }	
+          g_cap_latch[edit_col-1].cmd_state	=0;					
+			}
       else
-        g_cap[edit_col-1].state = 1;
+			{
+	            switch (edit_col) {
+                case 1: g_relay_state |= CAP1_ON; break;
+                case 2: g_relay_state |= CAP2_ON; break;
+                case 3: g_relay_state |= CAP3_ON; break;
+                case 4: g_relay_state |= CAP4_ON; break;
+                default: break;
+            }
+						 g_cap_latch[edit_col-1].cmd_state	=0;		
+        } 
+	
+			
+			
+			
       state = 2;
       break;
     case KEY_5_UP:
@@ -1582,7 +1776,7 @@ void Cap_Adjust(u8 key_val)
 
     LCD_DisplayString(0, 20, g_Cap_titles[1], 16, ((state == 0)) ? 1 : 0);
     LCD_DisplayString(72, 20, ":", 16, 0); // 冒号不反显
-    LCD_DisplayString(81, 20, (var1 == 0) ? g_Cap_titles[2] : g_Cap_titles[3], 16, ((state == 1)) ? 1 : 0);
+    LCD_DisplayString(81, 20, (var1.mode == 0) ? g_Cap_titles[2] : g_Cap_titles[3], 16, ((state == 1)) ? 1 : 0);
     LCD_DisplayString(129, 112, "时间", 16, 0);
     time_disp(system_date, system_time, 171, 112);
 
@@ -1661,484 +1855,6 @@ void Cap_Adjust(u8 key_val)
   }
 }
 
-/*********采样校准菜单********/
-void Sampling_Adiust(uint8_t key_val)
-{
-  if (key_val == KEY_5_UP)
-  {
-    menu_state.id = MAIN_MENU;
-    LCD_Clear();
-    menu_state.switch_temp_flag = 1;
-    return;
-  }
-
-  LCD_DisplayString(84, 0, "采样校准", 16, 0);
-
-  LCD_DisplayString(0, 20, "版本:", 16, 0);
-  LCD_DisplayString(48, 20, "默认", 16, 0);
-}
-
-/*********事件记录菜单********/
-
-// 配置参数
-#define EVENT_LOG_CNT 100    // 总事件数
-#define TOTAL_PAGE_CNT 20    // 总页数
-#define EVENT_PER_PAGE 5     // 每页显示5条
-#define EVENT_STR_BUF_LEN 16 // 事件字符串缓冲区长度
-
-// 显示状态变量
-static uint8_t s_current_page = 1;  // 当前页（1~20）
-static uint8_t s_selected_line = 1; // 当前选中行（1~5）
-static uint8_t s_refresh_flag = 1;  // 显示刷新标志
-static uint8_t s_latest_event_idx;  // 最新事件的FRAM索引（首次进入菜单读取）
-static uint8_t s_page_first_seq;    // 当前页第一条记录的序号（如第1页=1，第2页=6）
-static uint8_t s_first_enter = 1;
-// 缓存当前页的5条事件记录（避免重复读FRAM）
-static Event_Log_Struct s_page_event_cache[EVENT_PER_PAGE];
-// 缓存当前页的5条格式化字符串（避免重复拼接）
-static char s_page_str_cache[EVENT_PER_PAGE][EVENT_STR_BUF_LEN];
-
-// 临时缓冲区（复用）
-static char s_temp_buf[4];
-static uint8_t s_cache_valid = 0; // 缓存有效标志（1=有效，0=需重新读取）
-
-/*
-*********************************************************************************************************
-*   函 数 名: Event_Log_Get_Latest_Idx
-*   功能说明: 首次进入菜单时，获取最新事件的FRAM索引（仅读1次）
-*   返 回 值: 最新事件的FRAM索引（0~99）
-*********************************************************************************************************
-*/
-static uint8_t Event_Log_Get_Latest_Idx(void)
-{
-  uint8_t current_idx = Get_Event_Index();
-  // 最新事件索引：当前索引为0→最新是99，否则为当前索引-1
-  return (current_idx == 0) ? (EVENT_LOG_CNT - 1) : (current_idx - 1);
-}
-
-/*
-*********************************************************************************************************
-*   函 数 名: Event_Log_Calc_Seq_To_Idx
-*   功能说明: 根据事件序号（001~100）计算对应的FRAM索引（核心映射）
-*   形    参: seq_num - 事件序号（1=最新，100=最旧）
-*   返 回 值: FRAM索引（0~99）
-*********************************************************************************************************
-*/
-static uint8_t Event_Log_Calc_Seq_To_Idx(uint8_t seq_num)
-{
-  if (seq_num < 1 || seq_num > EVENT_LOG_CNT)
-    return 0;
-  // 序号1→最新事件索引，序号递增→索引递减（循环）
-  return (s_latest_event_idx - (seq_num - 1) + EVENT_LOG_CNT) % EVENT_LOG_CNT;
-}
-
-// ==================== 工具函数（保留）====================
-static void Uint8_To_3Str(uint8_t num, char *buf)
-{
-  if (buf == NULL)
-    return;
-  buf[0] = (num / 100) + '0';
-  buf[1] = (num % 100 / 10) + '0';
-  buf[2] = (num % 10) + '0';
-  buf[3] = '\0';
-}
-
-static void Uint8_To_2Str(uint8_t num, char *buf)
-{
-  if (buf == NULL)
-    return;
-  buf[0] = (num / 10) + '0';
-  buf[1] = (num % 10) + '0';
-  buf[2] = '\0';
-}
-
-static const char *Event_Type_To_String(Event_Type_E type)
-{
-  switch (type)
-  {
-  case EVENT_TYPE_NONE:
-    return "            ";
-  case EVENT_TYPE_OVER_CURRENT1:
-    return "一路过\xFD流";
-  case EVENT_TYPE_OVER_CURRENT2:
-    return "二路过\xFD流";
-  case EVENT_TYPE_OVER_CURRENT3:
-    return "三路过\xFD流";
-  case EVENT_TYPE_OVER_CURRENT4:
-    return "四路过\xFD流";
-  case EVENT_TYPE_OVER_CURRENT11:
-    return "一路速断";
-  case EVENT_TYPE_OVER_CURRENT22:
-    return "二路速断";
-  case EVENT_TYPE_OVER_CURRENT33:
-    return "三路速断";
-  case EVENT_TYPE_OVER_CURRENT44:
-    return "四路速断";
-  case EVENT_TYPE_OVER_VOL_ZERO1:
-    return "一路零序";
-  case EVENT_TYPE_OVER_VOL_ZERO2:
-    return "二路零序";
-  case EVENT_TYPE_OVER_VOL_ZERO3:
-    return "三路零序";
-  case EVENT_TYPE_OVER_VOL_ZERO4:
-    return "四路零序";
-  case EVENT_TYPE_OVER_VOL:
-    return "系统过\xFD压";
-  case EVENT_TYPE_UNDER_VOL:
-    return "系统欠压";
-  case EVENT_TYPE_IN_STOP1:
-    return "一路拒投";
-  case EVENT_TYPE_IN_STOP2:
-    return "二路拒投";
-  case EVENT_TYPE_IN_STOP3:
-    return "三路拒投";
-  case EVENT_TYPE_IN_STOP4:
-    return "四路拒投";
-  case EVENT_TYPE_QUIT_STOP1:
-    return "一路拒切";
-  case EVENT_TYPE_QUIT_STOP2:
-    return "二路拒切";
-  case EVENT_TYPE_QUIT_STOP3:
-    return "三路拒切";
-  case EVENT_TYPE_QUIT_STOP4:
-    return "四路拒切";
-  case EVENT_TYPE_ERR1:
-    return "一路外部故障";
-  case EVENT_TYPE_ERR2:
-    return "二路外部故障";
-  case EVENT_TYPE_ERR3:
-    return "三路外部故障";
-  case EVENT_TYPE_ERR4:
-    return "四路外部故障";
-  case EVENT_TYPE_POWER_OFF:
-    return "前段总闸断电";
-  case EVENT_TYPE_IN1:
-    return "一路投入";
-  case EVENT_TYPE_IN2:
-    return "二路投入";
-  case EVENT_TYPE_IN3:
-    return "三路投入";
-  case EVENT_TYPE_IN4:
-    return "四路投入";
-  case EVENT_TYPE_QUIT1:
-    return "一路切除\xFD";
-  case EVENT_TYPE_QUIT2:
-    return "二路切除\xFD";
-  case EVENT_TYPE_QUIT3:
-    return "三路切除\xFD";
-  case EVENT_TYPE_QUIT4:
-    return "四路切除\xFD";
-  default:
-    return "      ";
-  }
-}
-
-// ==================== 格式化函数（保留）====================
-static void Event_Log_Format_String(Event_Log_Struct *log, uint8_t seq_num, char *buf)
-{
-
-  uint8_t buf_idx = 0;
-  const char *type_str = Event_Type_To_String(log->event_type);
-  if (log == NULL || buf == NULL)
-    return;
-  // 拼接3位序号
-  Uint8_To_3Str(seq_num, s_temp_buf);
-  buf[buf_idx++] = s_temp_buf[0];
-  buf[buf_idx++] = s_temp_buf[1];
-  buf[buf_idx++] = s_temp_buf[2];
-  buf[buf_idx++] = ' ';
-
-  // 拼接事件类型
-  while (*type_str != '\0' && buf_idx < EVENT_STR_BUF_LEN - 1)
-  {
-    buf[buf_idx++] = *type_str++;
-  }
-  buf[buf_idx] = '\0';
-}
-/*
-*********************************************************************************************************
-*   函 数 名: Event_Log_Load_Page_Cache
-*   功能说明: 加载当前页的5条记录到缓存（仅跨页/首次进入时调用）
-*   返 回 值: 无
-*********************************************************************************************************
-*/
-static void Event_Log_Load_Page_Cache(void)
-{
-  uint8_t fram_idx, seq_num, i;
-
-  // 计算当前页第一条记录的序号（如第1页=1，第2页=6，第3页=11...）
-  s_page_first_seq = (s_current_page - 1) * EVENT_PER_PAGE + 1;
-
-  // 读取当前页的5条记录到缓存
-  for (i = 0; i < EVENT_PER_PAGE; i++)
-  {
-    seq_num = s_page_first_seq + i;
-    if (seq_num > EVENT_LOG_CNT)
-    { // 边界保护（避免越界）
-      memset(&s_page_event_cache[i], 0, sizeof(Event_Log_Struct));
-      memset(s_page_str_cache[i], 0, EVENT_STR_BUF_LEN);
-      continue;
-    }
-
-    // 计算FRAM索引并读取记录
-    fram_idx = Event_Log_Calc_Seq_To_Idx(seq_num);
-    FM31256_FRAM_Read(EVENT_LOG_ADDR(fram_idx), (uint8_t *)&s_page_event_cache[i], sizeof(Event_Log_Struct));
-
-    // 格式化字符串并缓存
-    Event_Log_Format_String(&s_page_event_cache[i], seq_num, s_page_str_cache[i]);
-  }
-
-  s_cache_valid = 1;  // 缓存有效
-  s_refresh_flag = 1; // 标记需要刷新显示
-}
-// ==================== 分页信息显示（保留）====================
-static void Event_Log_Display_Page_Info(void)
-{
-  char page_buf[8];
-  uint8_t idx = 0;
-
-  Uint8_To_2Str(s_current_page, s_temp_buf);
-  page_buf[idx++] = s_temp_buf[0];
-  page_buf[idx++] = s_temp_buf[1];
-  page_buf[idx++] = '/';
-
-  Uint8_To_2Str(TOTAL_PAGE_CNT, s_temp_buf);
-  page_buf[idx++] = s_temp_buf[0];
-  page_buf[idx++] = s_temp_buf[1];
-  page_buf[idx] = '\0';
-
-  LCD_DisplayString(195, 0, page_buf, 16, 0);
-}
-
-/*
-*********************************************************************************************************
-*   函 数 名: Event_Log_Refresh_Line
-*   功能说明: 仅刷新指定行的显示（反显/正常），不重绘整页（核心优化）
-*   形    参: line - 行号（1~5）；highlight - 1=反显，0=正常
-*********************************************************************************************************
-*/
-static void Event_Log_Refresh_Line(uint8_t line, uint8_t highlight)
-{
-
-  uint8_t line_idx = line - 1;
-  uint8_t line_y = 20 + line_idx * 16; // 行Y坐标
-  if (line < 1 || line > EVENT_PER_PAGE)
-    return;
-  // 显示事件字符串
-  LCD_DisplayString(0, line_y, s_page_str_cache[line_idx], 16, highlight);
-
-  // 显示时间（仅事件有效时）
-  if (s_page_event_cache[line_idx].event_type != EVENT_TYPE_NONE)
-  {
-    disp_two_digit(s_page_event_cache[line_idx].year, 180, line_y, 8, 0);
-    LCD_DisplayChar(198, line_y, "/", 8, 0);
-    disp_two_digit(s_page_event_cache[line_idx].month, 207, line_y, 8, 0);
-    LCD_DisplayChar(225, line_y, "/", 8, 0);
-    disp_two_digit(s_page_event_cache[line_idx].day, 234, line_y, 8, 0);
-
-    disp_two_digit(s_page_event_cache[line_idx].hour, 180, line_y + 8, 8, 0);
-    LCD_DisplayChar(198, line_y + 8, ":", 8, 0);
-    disp_two_digit(s_page_event_cache[line_idx].minute, 207, line_y + 8, 8, 0);
-    LCD_DisplayChar(225, line_y + 8, ":", 8, 0);
-    disp_two_digit(s_page_event_cache[line_idx].second, 234, line_y + 8, 8, 0);
-  }
-  else
-  {
-    LCD_DisplayString(180, line_y, "        ", 8, 0);
-    LCD_DisplayString(180, line_y + 8, "        ", 8, 0);
-  }
-}
-
-/*
-*********************************************************************************************************
-*   函 数 名: Event_Log_Display_Page
-*   功能说明: 整页刷新（仅首次/跨页时调用）
-*********************************************************************************************************
-*/
-static void Event_Log_Display_Page(void)
-{
-  uint8_t i;
-  if (!s_cache_valid)
-    return; // 缓存无效时不显示
-
-  // 1. 清屏+显示标题+分页信息
-  LCD_DisplayString(81, 0, "事件记录", 16, 0);
-  Event_Log_Display_Page_Info();
-
-  // 2. 显示当前页所有行（仅首次/跨页时）
-  for (i = 0; i < EVENT_PER_PAGE; i++)
-  {
-    uint8_t highlight = (i + 1 == s_selected_line) ? 1 : 0;
-    Event_Log_Refresh_Line(i + 1, highlight);
-  }
-
-  s_refresh_flag = 0;
-}
-/*
-*********************************************************************************************************
-*   函 数 名: Event_Log_Init
-*   功能说明: 首次进入事件菜单初始化（仅调用1次）
-*********************************************************************************************************
-*/
-static void Event_Log_Init(void)
-{
-  // 1. 重置状态
-  s_current_page = 1;
-  s_selected_line = 1;
-  s_cache_valid = 0;
-
-  // 2. 获取最新事件索引（仅首次进入时读1次）
-  s_latest_event_idx = Event_Log_Get_Latest_Idx();
-
-  // 3. 加载第一页（最新5条）缓存
-  Event_Log_Load_Page_Cache();
-
-  // 4. 首次整页显示
-  Event_Log_Display_Page();
-}
-/*
-*********************************************************************************************************
-*   函 数 名: Event_Log_Handle_Key
-*   功能说明: 按键处理（核心重构：仅跨页时加载缓存）
-*********************************************************************************************************
-*/
-static void Event_Log_Handle_Key(uint8_t key_val)
-{
-  uint8_t need_refresh_line = 0;               // 是否需要刷新行反显
-  uint8_t need_reload_cache = 0;               // 是否需要重新加载缓存（跨页）
-  uint8_t old_selected_line = s_selected_line; // 记录旧选中行
-
-  switch (key_val)
-  {
-  case KEY_0_UP: // 上键：001上键→100（最后一页最后一行）
-    if (s_selected_line > 1)
-    {
-      // 非第一行：仅切换行，不跨页
-      s_selected_line--;
-      need_refresh_line = 1;
-    }
-    else
-    {
-      // 第一行：判断是否是第一页
-      if (s_current_page > 1)
-      {
-        s_current_page--;
-        s_selected_line = EVENT_PER_PAGE;
-        need_reload_cache = 1; // 跨页→重新加载缓存
-      }
-      else
-      {
-        // 第一页第一行（序号001）：跳转到最后一页最后一行（序号100）
-        s_current_page = TOTAL_PAGE_CNT;  // 最后一页（20页）
-        s_selected_line = EVENT_PER_PAGE; // 最后一行（5行）
-        need_reload_cache = 1;            // 跨页→重新加载缓存
-      }
-    }
-    break;
-
-  case KEY_1_UP: // 下键：100下键→001（第一页第一行）
-    if (s_selected_line < EVENT_PER_PAGE)
-    {
-      // 非最后一行：仅切换行，不跨页
-      s_selected_line++;
-      need_refresh_line = 1;
-    }
-    else
-    {
-      // 最后一行：判断是否是最后一页
-      if (s_current_page < TOTAL_PAGE_CNT)
-      {
-        s_current_page++;
-        s_selected_line = 1;
-        need_reload_cache = 1; // 跨页→重新加载缓存
-      }
-      else
-      {
-        // 最后一页最后一行（序号100）：跳转到第一页第一行（序号001）
-        s_current_page = 1;    // 第一页
-        s_selected_line = 1;   // 第一行
-        need_reload_cache = 1; // 跨页→重新加载缓存
-      }
-    }
-    break;
-
-  case KEY_2_UP: // 左键（上一页）：第一页左键→最后一页
-    if (s_current_page > 1)
-    {
-      s_current_page--;
-      need_reload_cache = 1; // 跨页→重新加载缓存
-    }
-    else
-    {
-      // 第一页：跳转到最后一页
-      s_current_page = TOTAL_PAGE_CNT;
-      need_reload_cache = 1;
-    }
-    break;
-
-  case KEY_3_UP: // 右键（下一页）：最后一页右键→第一页
-    if (s_current_page < TOTAL_PAGE_CNT)
-    {
-      s_current_page++;
-      need_reload_cache = 1; // 跨页→重新加载缓存
-    }
-    else
-    {
-      // 最后一页：跳转到第一页
-      s_current_page = 1;
-      need_reload_cache = 1;
-    }
-    break;
-
-  case KEY_5_UP: // 返回主菜单
-    menu_state.id = MAIN_MENU;
-    s_cache_valid = 0; // 重置缓存标志
-    s_first_enter = 1; // 下次进入重新初始化
-    LCD_Clear();
-    menu_state.switch_temp_flag = 1;
-    return; // 直接返回，不处理后续
-
-  default:
-    return;
-  }
-
-  // 1. 跨页：重新加载缓存+整页刷新
-  if (need_reload_cache)
-  {
-    Event_Log_Load_Page_Cache();
-    Event_Log_Display_Page();
-  }
-  // 2. 仅行切换：刷新旧行（正常显示）+ 新行（反显）
-  else if (need_refresh_line)
-  {
-    Event_Log_Refresh_Line(old_selected_line, 0); // 旧行取消反显
-    Event_Log_Refresh_Line(s_selected_line, 1);   // 新行反显
-  }
-}
-
-/*
-*********************************************************************************************************
-*   函 数 名: Event_Log
-*   功能说明: 事件菜单主入口（最终版）
-*********************************************************************************************************
-*/
-void Event_Log(uint8_t key_val)
-{
-  // 首次进入菜单：初始化（仅执行1次）
-
-  if (s_first_enter)
-  {
-    Event_Log_Init();
-    s_first_enter = 0;
-    return;
-  }
-
-  // 非首次：处理按键
-  if (key_val != KEY_NONE)
-  { // KEY_NONE需定义为0，根据你的按键驱动调整
-    Event_Log_Handle_Key(key_val);
-  }
-}
 
 /*********数据统计菜单********/
 void Data_Stat(uint8_t key_val)
@@ -2416,7 +2132,7 @@ void Sys_Para_Set(u8 key_val)
       }
       else if (item_id == 7)
       {
-        if(Set_Ratio_Para(&sys_pt_ct)||Set_Cap_Ratio_Para_Ch(0,&var1)||Set_Cap_Ratio_Para_Ch(0,&var2)||Set_Cap_Ratio_Para_Ch(0,&var3)||Set_Cap_Ratio_Para_Ch(0,&var4))
+        if(Set_Ratio_Para(&sys_pt_ct)||Set_Cap_Ratio_Para_Ch(0,&var1)||Set_Cap_Ratio_Para_Ch(1,&var2)||Set_Cap_Ratio_Para_Ch(2,&var3)||Set_Cap_Ratio_Para_Ch(3,&var4))
 				{
 				    g_hard_state.iic_err_times++;
 				}
@@ -3747,6 +3463,7 @@ void Sys_Cap_Prot_Para_Set(u8 key_val, char num)
 				else
 				{
         menu_state.id = PROT_PARAM; // 保存
+				g_cap_protect[num]=pro;
         state = 0;
         LCD_Clear();
         menu_state.switch_temp_flag = 1;
@@ -3755,7 +3472,7 @@ void Sys_Cap_Prot_Para_Set(u8 key_val, char num)
       }
       else if (item_id == 11)
       {
-        menu_state.id = PROT_PARAM; // 保存
+        menu_state.id = PROT_PARAM; // 退出
         state = 0;
         LCD_Clear();
         menu_state.switch_temp_flag = 1;
@@ -3953,7 +3670,7 @@ void Sys_Cap_Prot_Para_Set(u8 key_val, char num)
   // 电压值
   LCD_DisplayString(120, 78, g_cap_prot_titles[7], 16, ((item_id == 8) && (state == 1)));
   LCD_DisplayString(189, 78, "#", 16, 0);
-  LCD_DisplayFixedPoint(192, 78, var.zero_value/100,var.zero_value%100,2,2 ,16, ((item_id == 8) && (state == 2)) ? edit_col : 0xFF, 0);
+  LCD_DisplayFixedPoint(192, 78, var.zero_value/100,var.zero_value%100,2, 2,16, ((item_id == 8) && (state == 2)) ? edit_col : 0xFF, 0);
   LCD_DisplayString(231, 78, "V", 16, 0);
 
   // 时间

@@ -13,18 +13,19 @@
 
  Ratio_Para_Struct g_sys_pt_ct;  //系统pt、ct
 
- Protect_Para_Struct g_vol_h,g_vol_l;//过压保护、欠压保护参数
+ volatile Protect_Para_Struct g_vol_h,g_vol_l;//过压保护、欠压保护参数
  Com_Para_Struct  g_com;//通讯参数
  Cap_Para_Struct  g_cap[4];//电容参数
  Control_Para_Struct g_control_para;//控制参数
  
  AutoManual_Para_Struct g_adjust_cap; //调试开关
- Cap_Num_Struct g_cap_num;  //投入电容数量 1-4  几路保护
+volatile  Cap_Num_Struct g_cap_num;  //投入电容数量 1-4  几路保护
 
- Cap_Protect_Para_Struct  g_cap_protect[4];
+ volatile Cap_Protect_Para_Struct  g_cap_protect[4];
  Cap_Ratio_Para_Struct  g_cap_ratio[4];
 
  Stat_Para_Struct  g_stat;
+Stat_date  g_last_reset_date;
 
 // ************************* 内部工具函数（仅本文件调用，带功能说明） *************************
 
@@ -72,8 +73,8 @@ Para_Op_Result_E FM31256_Read_Calib(uint8_t calib_channel, uint8_t *read_data, u
         if (crc_calc == crc_saved)
         {
             // 提取存储的0x3E/0x5E校验和（假设存储在数据倒数7~4字节：3E占3字节，5E占3字节）
-            *saved_chksum3e = (temp_buf[data_len - 7] << 16) | (temp_buf[data_len - 6] << 8) | temp_buf[data_len - 5];
-            *saved_chksum5e = (temp_buf[data_len - 4] << 16) | (temp_buf[data_len - 3] << 8) | temp_buf[data_len - 2];
+            *saved_chksum3e = ((uint32_t)temp_buf[data_len - 7] << 16) | ((uint32_t)temp_buf[data_len - 6] << 8) | temp_buf[data_len - 5];
+            *saved_chksum5e = ((uint32_t)temp_buf[data_len - 4] << 16) | ((uint32_t)temp_buf[data_len - 3] << 8) | temp_buf[data_len - 2];
             memcpy(read_data, temp_buf, data_len);
             return PARA_OP_SUCCESS;
         }
@@ -87,8 +88,8 @@ Para_Op_Result_E FM31256_Read_Calib(uint8_t calib_channel, uint8_t *read_data, u
         
         if (crc_calc == crc_saved)
         {
-            *saved_chksum3e = (temp_buf[data_len - 7] << 16) | (temp_buf[data_len - 6] << 8) | temp_buf[data_len - 5];
-            *saved_chksum5e = (temp_buf[data_len - 4] << 16) | (temp_buf[data_len - 3] << 8) | temp_buf[data_len - 2];
+            *saved_chksum3e = ((uint32_t)temp_buf[data_len - 7] << 16) | ((uint32_t)temp_buf[data_len - 6] << 8) | temp_buf[data_len - 5];
+            *saved_chksum5e = ((uint32_t)temp_buf[data_len - 4] << 16) | ((uint32_t)temp_buf[data_len - 3] << 8) | temp_buf[data_len - 2];
             memcpy(read_data, temp_buf, data_len);
             return PARA_OP_SUCCESS;
         }
@@ -99,6 +100,9 @@ Para_Op_Result_E FM31256_Read_Calib(uint8_t calib_channel, uint8_t *read_data, u
            (FM31256_FRAM_Read(backup_addr, temp_buf, data_len) != 0) ? PARA_OP_ERR_IIC :
            (calib_channel == 1 ? PARA_OP_ERR_CRC_MAIN : PARA_OP_ERR_CRC_BACKUP);
 }
+
+
+
 
 
 /**
@@ -483,7 +487,7 @@ Para_Op_Result_E Sys_Param_Init(void) {
 								
         err|=Get_Cap_Num(&g_cap_num);
 				
-
+        err|=Get_Stat_Date(&g_last_reset_date);
 
     // 场景4：所有校验通过
     return err;
@@ -998,8 +1002,8 @@ Para_Op_Result_E Set_Cap_Ratio_Para_Ch(uint8_t ch, const Cap_Ratio_Para_Struct *
 Para_Op_Result_E Get_Cap_Num(Cap_Num_Struct *para) {
 	  Para_Op_Result_E err;
     if (para != NULL) {  /* 空指针保护 */
-        err=Read_Param_With_Backup(CAP_NUM_MAIN_DATA, CAP_NUM__MAIN_CRC,
-                               CAP_NUM__BACKUP_DATA, CAP_NUM__BACKUP_CRC,
+        err=Read_Param_With_Backup(CAP_NUM_MAIN_DATA, CAP_NUM_MAIN_CRC,
+                               CAP_NUM_BACKUP_DATA, CAP_NUM_BACKUP_CRC,
                                para, sizeof(Cap_Num_Struct));
 			return err;
     }
@@ -1015,13 +1019,50 @@ Para_Op_Result_E Get_Cap_Num(Cap_Num_Struct *para) {
 Para_Op_Result_E Set_Cap_Num(const Cap_Num_Struct *new_para) {
 	  Para_Op_Result_E err;
     if (new_para != NULL) {  /* 空指针保护 */
-        err=Write_Param_With_Backup_Log(CAP_NUM_MAIN_DATA, CAP_NUM__MAIN_CRC,
-                                    CAP_NUM__BACKUP_DATA, CAP_NUM__BACKUP_CRC,
+        err=Write_Param_With_Backup_Log(CAP_NUM_MAIN_DATA, CAP_NUM_MAIN_CRC,
+                                    CAP_NUM_BACKUP_DATA, CAP_NUM_BACKUP_CRC,
                                     new_para, sizeof(Cap_Num_Struct));
 			return err;
     }
 				return PARA_OP_ERR_NULL_PTR;
 }
+
+
+
+/**
+ * @brief  读取统计清零参数
+ * @param  para：存储统计清零的结构体指针（输出参数）
+ * @return 无
+ * @note   内部调用Read_Param_With_Backup，支持主备区切换和失效恢复（仅内存默认值）
+ */
+Para_Op_Result_E Get_Stat_Date(Stat_date *para) {
+	  Para_Op_Result_E err;
+    if (para != NULL) {  /* 空指针保护 */
+        err=Read_Param_With_Backup(STAT_DATE_MAIN_DATA, STAT_DATE_MAIN_CRC,
+                               STAT_DATE_BACKUP_DATA, STAT_DATE_BACKUP_CRC,
+                               para, sizeof(Stat_date));
+			return err;
+    }
+		return PARA_OP_ERR_NULL_PTR;
+}
+
+/**
+ * @brief  设置统计清零参数
+ * @param  new_para：新参数结构体指针（输入参数）
+ * @return 无
+ * @note   主程序按需调用，不主动触发则不覆盖已有数据
+ */
+Para_Op_Result_E Set_Stat_Date(const Stat_date *new_para) {
+	  Para_Op_Result_E err;
+    if (new_para != NULL) {  /* 空指针保护 */
+        err=Write_Param_With_Backup_Log(STAT_DATE_MAIN_DATA, STAT_DATE_MAIN_CRC,
+                                    STAT_DATE_BACKUP_DATA, STAT_DATE_BACKUP_CRC,
+                                    new_para, sizeof(Stat_date));
+			return err;
+    }
+				return PARA_OP_ERR_NULL_PTR;
+}
+
 
 
 
@@ -1061,16 +1102,48 @@ static Para_Op_Result_E Update_Event_Index(uint8_t *index) {
  * @return 无
  * @note   原子读取：关闭总中断→复制全局时间→开启总中断，避免时间错乱
  */
+/**
+ * @brief  填充事件记录的时间字段（原子读取当前时间，并转换为BCD码）
+ * @param  event_log：事件记录结构体指针（需填充时间）
+ * @return 无
+ * @note   1. 原子读取：关闭总中断→复制全局时间→开启总中断，避免时间错乱；
+ *         2. 系统时间规则：
+ *            - system_date.year：2位十进制年份（25=2025，99=2099）；
+ *            - system_date/month/day、system_time/hour/minute/second：十进制数值；
+ *         3. 所有时间字段转换为BCD码后存储，适配Modbus通讯和FRAM存储规范；
+ *         4. 依赖全局变量：system_date（年/月/日）、system_time（时/分/秒）
+ */
 static void Fill_Event_Time(Event_Log_Struct *event_log) {
-    if (event_log == NULL) return;  /* 空指针保护 */
-    EA = 0;  /* 关闭总中断：确保读取过程中时间不被更新 */
-    event_log->year   = BASE_YEAR + system_date.year;  /* 完整年份（如2025） */
-    event_log->month  = system_date.month;             /* 月份（1~12） */
-    event_log->day    = system_date.day;               /* 日期（1~31） */
-    event_log->hour   = system_time.hour;              /* 小时（0~23） */
-    event_log->minute = system_time.minute;            /* 分钟（0~59） */
-    event_log->second = system_time.second;            /* 秒（0~59） */
-    EA = 1;  /* 开启总中断：读取完成后恢复 */
+    /* C89：局部变量声明在函数开头（原子读取后缓存，避免中断恢复后数据变化） */
+    uint8_t dec_year;    // 2位十进制年份（如25）
+    uint8_t dec_month;   // 十进制月份（1~12）
+    uint8_t dec_day;     // 十进制日期（1~31）
+    uint8_t dec_hour;    // 十进制小时（0~23）
+    uint8_t dec_minute;  // 十进制分钟（0~59）
+    uint8_t dec_second;  // 十进制秒（0~59）
+
+    /* 空指针保护：直接返回，避免非法访问 */
+    if (event_log == NULL) {
+        return;
+    }
+
+    /* 原子读取全局时间（关中断，避免时间字段跨值更新） */
+    EA = 0;
+    dec_year   = system_date.year;    // 直接读取2位十进制年份（无需取模）
+    dec_month  = system_date.month;
+    dec_day    = system_date.day;
+    dec_hour   = system_time.hour;
+    dec_minute = system_time.minute;
+    dec_second = system_time.second;
+    EA = 1;
+
+    /* 十进制→BCD码转换，填充到事件结构体 */
+    event_log->year   = DEC_TO_BCD(dec_year);    // 25→0x25（BCD）
+    event_log->month  = DEC_TO_BCD(dec_month);   // 10→0x10（BCD）
+    event_log->day    = DEC_TO_BCD(dec_day);     // 20→0x20（BCD）
+    event_log->hour   = DEC_TO_BCD(dec_hour);    // 15→0x15（BCD）
+    event_log->minute = DEC_TO_BCD(dec_minute);  // 30→0x30（BCD）
+    event_log->second = DEC_TO_BCD(dec_second);  // 45→0x45（BCD）
 }
 
 /**
@@ -1097,27 +1170,86 @@ Para_Op_Result_E Write_Event_Log(Event_Type_E event_type, uint32_t event_data) {
 }
 
 /**
- * @brief  读取最新的一条系统事件记录
+ * @brief  读取指定路数（1-4路）的最新事件记录
+ * @param  chn_num：路数（仅支持1/2/3/4）
  * @param  event_log：存储事件记录的结构体指针（输出参数）
- * @return 1：读取成功（存在有效事件）；0：读取失败（无有效事件/空指针）
+ * @return PARA_OP_OK：读取成功且事件有效；
+ *         PARA_OP_ERR_NULL_PTR：空指针；
+ *         PARA_OP_ERR_ADDR_OVERFLOW：路数越界；
+ *         EVENT_ERR：读取成功但事件无效（event_type=NONE）
+ * @note   依赖宏：EVENT_CHN_LATEST_ADDR/EVENT_CHN_LATEST_LEN
  */
-Para_Op_Result_E Read_Latest_Event_Log(Event_Log_Struct *event_log) {
-	  Para_Op_Result_E err;		 	
-    uint8_t current_idx, latest_idx;
-    if (event_log == NULL) return 0;  /* 空指针保护：返回失败 */
+Para_Op_Result_E Read_Chn_Latest_Event_Log(uint8_t chn_num, Event_Log_Struct *event_log) {
+    /* C89：所有局部变量声明在函数开头 */
+    Para_Op_Result_E err;
+    uint8_t chn_idx;  /* 路数索引（0-3，对应1-4路） */
 
-    current_idx = Get_Event_Index();  /* 获取当前事件索引（下次存储位置） */
-    /* 最新事件索引：当前索引为0→最新是99，否则为当前索引-1 */
-    latest_idx = (current_idx == 0) ? (EVENT_LOG_CNT - 1) : (current_idx - 1);
+    /* 1. 空指针保护 */
+    if (event_log == NULL) {
+        return PARA_OP_ERR_NULL_PTR;
+    }
 
-    /* 读取最新事件记录 */
-    err=FM31256_FRAM_Read(EVENT_LOG_ADDR(latest_idx), (uint8_t *)event_log, sizeof(Event_Log_Struct));
-	  
-	  if(err)
-			return err;
-    /* 事件类型为NONE→无有效事件，返回0；否则返回1 */
-    return (event_log->event_type != EVENT_TYPE_NONE) ? EVENT_OK : EVENT_ERR;
+    /* 2. 路数合法性校验（仅支持1-4路） */
+    if (chn_num < 1 || chn_num > 4) {
+        return PARA_OP_ERR_ADDR_OVERFLOW;
+    }
+
+    /* 3. 转换路数为索引（1→0，2→1，3→2，4→3） */
+    chn_idx = chn_num - 1;
+
+    /* 4. 从FRAM读取对应路的最新事件 */
+    err = FM31256_FRAM_Read(EVENT_CHN_LATEST_ADDR(chn_idx), 
+                            (uint8_t *)event_log, 
+                            EVENT_CHN_LATEST_LEN);
+
+    /* 5. FRAM读取失败→直接返回失败码 */
+    if (err != EVENT_OK) {
+        return err;
+    }
+
+    /* 6. 读取成功但事件类型为NONE→返回无效事件码 */
+    if (event_log->event_type == EVENT_TYPE_NONE) {
+        return EVENT_ERR;
+    }
+
+    /* 7. 读取成功且事件有效 */
+    return EVENT_OK;
 }
+
+/**
+ * @brief  写入指定路数（1-4路）的最新事件记录
+ * @param  chn_num：路数（仅支持1/2/3/4）
+ * @param  event_log：待写入的事件记录结构体指针（输入参数）
+ * @return PARA_OP_OK：写入成功；
+ *         PARA_OP_ERR_NULL_PTR：空指针；
+ *         PARA_OP_ERR_ADDR_OVERFLOW：路数越界；
+ *         其他：FRAM写入失败码（由FM31256_FRAM_Write返回）
+ * @note   1. 写入前无需清空原有数据，直接覆盖；
+ *         2. 若需“清空事件”，可传入event_type=NONE的结构体
+ */
+Para_Op_Result_E Write_Chn_Latest_Event_Log(uint8_t chn_num, const Event_Log_Struct *event_log) {
+    /* C89：局部变量声明在开头 */
+    uint8_t chn_idx;
+
+    /* 1. 空指针保护 */
+    if (event_log == NULL) {
+        return PARA_OP_ERR_NULL_PTR;
+    }
+
+    /* 2. 路数合法性校验（仅支持1-4路） */
+    if (chn_num < 1 || chn_num > 4) {
+        return PARA_OP_ERR_ADDR_OVERFLOW;
+    }
+
+    /* 3. 转换路数为索引（1→0，2→1，3→2，4→3） */
+    chn_idx = chn_num - 1;
+
+    /* 4. 写入FRAM对应路的最新事件地址 */
+    return FM31256_FRAM_Write(EVENT_CHN_LATEST_ADDR(chn_idx), 
+                              (uint8_t *)event_log, 
+                              EVENT_CHN_LATEST_LEN);
+}
+
 
 /**
  * @brief  读取指定索引的系统事件记录
@@ -1139,4 +1271,38 @@ Para_Op_Result_E Read_Event_Log(uint8_t index, Event_Log_Struct *event_log) {
 }
 
 
+/* ==================== 读取最新20条事件记录（适配循环覆盖，无需补0） ==================== */
+/* 
+ * @brief  从100条循环覆盖的事件日志中，读取最新20条（未写入的事件读回本身为0）
+ * @param  event_buf：输出缓冲区（必须是20个Event_Log_Struct大小，存储最新20条）
+ * @return PARA_OP_OK：读取完成；PARA_OP_ERR_NULL_PTR：空指针
+ * @note   1. 事件日志共100条（EVENT_LOG_CNT=100），循环覆盖；
+ *         2. 最新事件索引 = (current_idx-1 + EVENT_LOG_CNT) % EVENT_LOG_CNT；
+ *         3. 未写入的事件FRAM读回为0，无需手动补0；
+ *         4. 循环覆盖场景（如最新索引8）：自动读取8→7→...→0→99→98→...→88（共20条）
+ */
+/* ==================== 读取最新20条事件记录（适配新结构体，无需补0） ==================== */
+Para_Op_Result_E Read_Latest_20_Event_Logs(Event_Log_Struct *event_buf) {
+    /* C89：局部变量全部放在开头 */
+    uint8_t current_idx;
+    uint8_t read_idx;
+    uint8_t i;
 
+    /* 空指针保护 */
+    if (event_buf == NULL) {
+        return PARA_OP_ERR_NULL_PTR;
+    }
+
+    /* 获取当前事件索引（下次存储位置） */
+    current_idx = Get_Event_Index();
+
+    /* 循环读取最新20条（循环覆盖逻辑不变） */
+    for (i = 0; i < 20; i++) {
+        /* 计算读取索引：从最新的开始往前取，循环覆盖 */
+        read_idx = (current_idx - 1 - i + EVENT_LOG_CNT) % EVENT_LOG_CNT;
+        /* 直接读取FRAM（未写入的读回为0，无需补0） */
+        (void)Read_Event_Log(read_idx, &event_buf[i]);
+    }
+
+    return EVENT_OK;
+}

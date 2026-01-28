@@ -1256,9 +1256,9 @@
           <GroupName>Readme</GroupName>
           <Files>
             <File>
-              <FileName>readme.txt</FileName>
+              <FileName>readme</FileName>
               <FileType>5</FileType>
-              <FilePath>..\..\readme.txt</FilePath>
+              <FilePath>..\..\readme</FilePath>
             </File>
           </Files>
         </Group>

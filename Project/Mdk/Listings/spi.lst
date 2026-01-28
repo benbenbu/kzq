@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   SPI                                                               01/09/2026 10:30:25 PAGE 1   
+C51 COMPILER V9.60.0.0   SPI                                                               01/28/2026 08:24:07 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE SPI
@@ -62,7 +62,7 @@ line level    source
   51   1          // 等待发送缓冲器空（确保能写入新数据）
   52   1          timeout = 0;
   53   1          while ((TXBMT) == 0) {
-C51 COMPILER V9.60.0.0   SPI                                                               01/09/2026 10:30:25 PAGE 2   
+C51 COMPILER V9.60.0.0   SPI                                                               01/28/2026 08:24:07 PAGE 2   
 
   54   2              timeout++;
   55   2              if (timeout > 200) {

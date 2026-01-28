@@ -24,7 +24,7 @@ sbit LCD_RST = P1^0;   // ���ź� (/RD) - ����Ч
 
 
 
-sbit LVC245_OE = P1^7;//LVC245  OE
+
 
 
 

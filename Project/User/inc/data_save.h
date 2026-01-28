@@ -16,8 +16,8 @@
 #define PARA_VERSION     0x04    // 参数版本号，和烧的默认版本参数一致，默认版本参数04
 
 /************************* 硬件相关宏定义（校表数据） *************************/
-#define HT7036_CALIB_LEN    20        /* HT7036校表数据长度：20字节/通道 */
-#define HT7053_CALIB_LEN    20        /* HT7053校表数据长度：20字节/通道 */
+#define HT7036_CALIB_LEN    31        /* HT7036校表数据长度：20字节/通道 */
+#define HT7053_CALIB_LEN    16        /* HT7053校表数据长度：20字节/通道 */
 
 /************************* 存储地址空间分配说明（FM31256铁电存储） *************************
 | 存储区域         | 地址范围      | 长度    | 用途                          | 备注                     |
@@ -60,7 +60,7 @@
 /************************* 多通道电容参数扩展宏（4通道适配） *************************/
 #define CAP_CHANNEL_CNT     4           /* 电容参数通道数：4路（1~4通道，代码中ch=0~3） */
 /* 单通道参数总长度=数据长度+CRC长度（手动计算适配C89预处理） */
-#define CAP_PARA_PER_CH_LEN     5       /* 单通道电容参数总长度：3字节数据 + 1字节CRC */
+#define CAP_PARA_PER_CH_LEN     8       /* 单通道电容参数总长度：3字节数据 + 1字节CRC */
 #define CAP_PROTECT_PARA_LEN    15      /* 单通道电容保护参数数据长度：15字节 */
 #define CAP_PROTECT_PER_CH_LEN  16      /* 单通道电容保护参数总长度：15字节数据 + 1字节CRC */
 #define CAP_RATIO_PARA_LEN      3       /* 单通道电容变比参数数据长度：3字节 */
@@ -93,6 +93,15 @@
 #define EVENT_LOG_START         (MODIFY_LOG_END + 1) /* 系统事件日志起始地址：0x2844 */
 #define EVENT_LOG_TOTAL         (EVENT_LOG_CNT * EVENT_LOG_LEN) /* 事件日志总长度：1200字节 */
 #define EVENT_LOG_END           (EVENT_LOG_START + EVENT_LOG_TOTAL - 1) /* 事件日志结束地址：0x2CF3 */
+
+/* 新增：4路最新事件记录宏（存储在循环事件日志之后，避免地址重叠） */
+#define EVENT_CHN_LATEST_CNT     4          /* 4路最新事件（每路1条） */
+#define EVENT_CHN_LATEST_START   (EVENT_LOG_END + 1) /* 4路最新事件起始地址：0x2CF4 */
+#define EVENT_CHN_LATEST_LEN     EVENT_LOG_LEN /* 单路最新事件长度：12字节 */
+#define EVENT_CHN_LATEST_ADDR(chn) (EVENT_CHN_LATEST_START + chn * EVENT_CHN_LATEST_LEN)
+/* 4路最新事件结束地址：0x2CF4 + 4*12 -1 = 0x2D23 */
+#define EVENT_CHN_LATEST_END     (EVENT_CHN_LATEST_START + EVENT_CHN_LATEST_CNT * EVENT_CHN_LATEST_LEN - 1)
+
 
 /* 地址合法性检查（C89兼容，纯常量表达式） */
 #if (EVENT_LOG_END) > 0x7FFFUL
@@ -192,11 +201,16 @@
 /* 14. 保护路数参数（多通道，主备区） */
 
 #define CAP_NUM_MAIN_DATA    (CAP_RATIO_MAIN_CRC_CH(CAP_CHANNEL_CNT-1) + PARA_CRC_LEN) /* 保护路数主区数据地址 */
-#define CAP_NUM__MAIN_CRC     (CAP_NUM_MAIN_DATA + sizeof(Cap_Num_Struct)) /* 保护路数主区CRC地址 */
-#define CAP_NUM__BACKUP_DATA  (CAP_NUM_MAIN_DATA + BACKUP_PARAM_OFFSET) /* 保护路数备区数据地址 */
-#define CAP_NUM__BACKUP_CRC   (CAP_NUM__BACKUP_DATA + sizeof(Cap_Num_Struct)) /* 保护路数备区CRC地址 */
+#define CAP_NUM_MAIN_CRC     (CAP_NUM_MAIN_DATA + sizeof(Cap_Num_Struct)) /* 保护路数主区CRC地址 */
+#define CAP_NUM_BACKUP_DATA  (CAP_NUM_MAIN_DATA + BACKUP_PARAM_OFFSET) /* 保护路数备区数据地址 */
+#define CAP_NUM_BACKUP_CRC   (CAP_NUM_BACKUP_DATA + sizeof(Cap_Num_Struct)) /* 保护路数备区CRC地址 */
 
+/* 15. 统计清零日期参数（） */
 
+#define STAT_DATE_MAIN_DATA    (CAP_NUM_MAIN_CRC + PARA_CRC_LEN) /* 保护路数主区数据地址 */
+#define STAT_DATE_MAIN_CRC     (STAT_DATE_MAIN_DATA + sizeof(Stat_date)) /* 保护路数主区CRC地址 */
+#define STAT_DATE_BACKUP_DATA  (STAT_DATE_MAIN_DATA + BACKUP_PARAM_OFFSET) /* 保护路数备区数据地址 */
+#define STAT_DATE_BACKUP_CRC   (STAT_DATE_BACKUP_DATA + sizeof(Stat_date)) /* 保护路数备区CRC地址 */
 /* 主参数区溢出检查（C89兼容，纯常量表达式） */
 //#define CAP_RATIO_LAST_CRC      (CAP_RATIO_MAIN_CRC_CH(CAP_CHANNEL_CNT-1) + PARA_CRC_LEN)
 //#if CAP_RATIO_LAST_CRC > MAIN_PARAM_END
@@ -219,7 +233,7 @@
 #define AUTO_MANUAL_PARA_DEFAULT {0x00}             /* 手自动默认值：自动模式 */
 #define CONTRA_PARA_DEFAULT     {60}                /* 对比度默认值：60（0~255） */
 #define ALARM_PARA_DEFAULT      {0}                 /* 报警参数默认值：0（无报警） */
-#define CAP_PROTECT_PARA_DEFAULT {0, 1000, 500, 0, 900, 100, 0, 100, 200} /* 电容保护默认值：过压/速压/零压均禁用，过压阈值10.00kV、延时5.00s，速压阈值9.00kV、延时1.00s，零压阈值1.00kV、延时2.00s */
+#define CAP_PROTECT_PARA_DEFAULT {0, 1000, 500, 0, 900, 100, 0, 1000, 200} /* 电容保护默认值：过压/速压/零压均禁用，过压阈值10.00kV、延时5.00s，速压阈值9.00kV、延时1.00s，零压阈值1.00kV、延时2.00s */
 #define CAP_RATIO_PARA_DEFAULT  {1000, 5}           /* 电容变比默认值：CT1000/5A */
 #define CAP_NUM_DEFAULT  {4,4}          							 /* 电容路数默认值：4*/
 
@@ -275,55 +289,79 @@ typedef enum {
     PARAM_ID_MAX                   /* 参数ID最大值：用于边界检查 */
 } Param_ID_E;
 
+
 /**
- * @brief 系统事件类型枚举（故障/操作事件分类，覆盖所有业务场景）
- * @note  事件码按“故障类型+操作类型”分组，便于日志解析
+ * @brief 系统事件类型枚举（拆分IA/IC过流/速断，后续枚举值顺延）
+ * @note  过流/速断拆分为IA/IC两路，对应g_sys_flag[0]/[1]的bit位；
+ *        枚举值连续递增，零序故障及后续类型顺延至17~20（原9~12），以此类推
  */
 typedef enum {
-    EVENT_TYPE_NONE           = 0x0000U,  /* 事件类型：无事件（默认值） */
-    /* 过流/速断故障（1~8） */
-    EVENT_TYPE_OVER_CURRENT1  = 0x0001U,  /* 事件类型：1路过流故障 */
-    EVENT_TYPE_OVER_CURRENT2  = 0x0002U,  /* 事件类型：2路过流故障 */
-    EVENT_TYPE_OVER_CURRENT3  = 0x0003U,  /* 事件类型：3路过流故障 */
-    EVENT_TYPE_OVER_CURRENT4  = 0x0004U,  /* 事件类型：4路过流故障 */
-    EVENT_TYPE_OVER_CURRENT11 = 0x0005U,  /* 事件类型：1路速断故障 */
-    EVENT_TYPE_OVER_CURRENT22 = 0x0006U,  /* 事件类型：2路速断故障 */
-    EVENT_TYPE_OVER_CURRENT33 = 0x0007U,  /* 事件类型：3路速断故障 */
-    EVENT_TYPE_OVER_CURRENT44 = 0x0008U,  /* 事件类型：4路速断故障 */
-    /* 零序故障（9~12） */
-    EVENT_TYPE_OVER_VOL_ZERO1 = 0x0009U,  /* 事件类型：1路零序过压故障 */
-    EVENT_TYPE_OVER_VOL_ZERO2 = 0x000AU,  /* 事件类型：2路零序过压故障 */
-    EVENT_TYPE_OVER_VOL_ZERO3 = 0x000BU,  /* 事件类型：3路零序过压故障 */
-    EVENT_TYPE_OVER_VOL_ZERO4 = 0x000CU,  /* 事件类型：4路零序过压故障 */
-    /* 系统电压故障（13~14） */
-    EVENT_TYPE_OVER_VOL       = 0x000DU,  /* 事件类型：系统过压故障 */
-    EVENT_TYPE_UNDER_VOL      = 0x000EU,  /* 事件类型：系统欠压故障 */
-    /* 拒投故障（15~18） */
-    EVENT_TYPE_IN_STOP1       = 0x000FU,  /* 事件类型：1路电容拒投故障 */
-    EVENT_TYPE_IN_STOP2       = 0x0010U,  /* 事件类型：2路电容拒投故障 */
-    EVENT_TYPE_IN_STOP3       = 0x0011U,  /* 事件类型：3路电容拒投故障 */
-    EVENT_TYPE_IN_STOP4       = 0x0012U,  /* 事件类型：4路电容拒投故障 */
-    /* 拒切故障（19~22） */
-    EVENT_TYPE_QUIT_STOP1     = 0x0013U,  /* 事件类型：1路电容拒切故障 */
-    EVENT_TYPE_QUIT_STOP2     = 0x0014U,  /* 事件类型：2路电容拒切故障 */
-    EVENT_TYPE_QUIT_STOP3     = 0x0015U,  /* 事件类型：3路电容拒切故障 */
-    EVENT_TYPE_QUIT_STOP4     = 0x0016U,  /* 事件类型：4路电容拒切故障 */
-    /* 外部故障（23~26） */
-    EVENT_TYPE_ERR1           = 0x0017U,  /* 事件类型：1路外部故障 */
-    EVENT_TYPE_ERR2           = 0x0018U,  /* 事件类型：2路外部故障 */
-    EVENT_TYPE_ERR3           = 0x0019U,  /* 事件类型：3路外部故障 */
-    EVENT_TYPE_ERR4           = 0x001AU,  /* 事件类型：4路外部故障 */
-    /* 电源故障（27） */
-    EVENT_TYPE_POWER_OFF      = 0x001BU,  /* 事件类型：前段总闸断电故障 */
-    /* 正常操作（28~39） */
-    EVENT_TYPE_IN1            = 0x001CU,  /* 事件类型：1路电容投入操作 */
-    EVENT_TYPE_IN2            = 0x001DU,  /* 事件类型：2路电容投入操作 */
-    EVENT_TYPE_IN3            = 0x001EU,  /* 事件类型：3路电容投入操作 */
-    EVENT_TYPE_IN4            = 0x001FU,  /* 事件类型：4路电容投入操作 */
-    EVENT_TYPE_QUIT1          = 0x0020U,  /* 事件类型：1路电容切除操作 */
-    EVENT_TYPE_QUIT2          = 0x0021U,  /* 事件类型：2路电容切除操作 */
-    EVENT_TYPE_QUIT3          = 0x0022U,  /* 事件类型：3路电容切除操作 */
-    EVENT_TYPE_QUIT4          = 0x0023U   /* 事件类型：4路电容切除操作 */
+    EVENT_TYPE_NONE                = 0x0000U,  /* 事件类型：无事件（默认值） */
+
+    /* ==================== 过流故障（IA路：1~4）==================== */
+    EVENT_TYPE_OVER_CURRENT1_IA    = 0x0001U,  /* 事件类型：1路IA过流故障（对应CAP1_IA_OVER_CURRENT） */
+    EVENT_TYPE_OVER_CURRENT2_IA    = 0x0002U,  /* 事件类型：2路IA过流故障（对应CAP2_IA_OVER_CURRENT） */
+    EVENT_TYPE_OVER_CURRENT3_IA    = 0x0003U,  /* 事件类型：3路IA过流故障（对应CAP3_IA_OVER_CURRENT） */
+    EVENT_TYPE_OVER_CURRENT4_IA    = 0x0004U,  /* 事件类型：4路IA过流故障（对应CAP4_IA_OVER_CURRENT） */
+
+    /* ==================== 过流故障（IC路：5~8）==================== */
+    EVENT_TYPE_OVER_CURRENT1_IC    = 0x0005U,  /* 事件类型：1路IC过流故障（对应CAP1_IC_OVER_CURRENT） */
+    EVENT_TYPE_OVER_CURRENT2_IC    = 0x0006U,  /* 事件类型：2路IC过流故障（对应CAP2_IC_OVER_CURRENT） */
+    EVENT_TYPE_OVER_CURRENT3_IC    = 0x0007U,  /* 事件类型：3路IC过流故障（对应CAP3_IC_OVER_CURRENT） */
+    EVENT_TYPE_OVER_CURRENT4_IC    = 0x0008U,  /* 事件类型：4路IC过流故障（对应CAP4_IC_OVER_CURRENT） */
+
+    /* ==================== 速断故障（IA路：9~12）==================== */
+    EVENT_TYPE_QUICK_CURRENT1_IA   = 0x0009U,  /* 事件类型：1路IA速断故障（对应CAP1_IA_QUICK_CURRENT） */
+    EVENT_TYPE_QUICK_CURRENT2_IA   = 0x000AU,  /* 事件类型：2路IA速断故障（对应CAP2_IA_QUICK_CURRENT） */
+    EVENT_TYPE_QUICK_CURRENT3_IA   = 0x000BU,  /* 事件类型：3路IA速断故障（对应CAP3_IA_QUICK_CURRENT） */
+    EVENT_TYPE_QUICK_CURRENT4_IA   = 0x000CU,  /* 事件类型：4路IA速断故障（对应CAP4_IA_QUICK_CURRENT） */
+
+    /* ==================== 速断故障（IC路：13~16）==================== */
+    EVENT_TYPE_QUICK_CURRENT1_IC   = 0x000DU,  /* 事件类型：1路IC速断故障（对应CAP1_IC_QUICK_CURRENT） */
+    EVENT_TYPE_QUICK_CURRENT2_IC   = 0x000EU,  /* 事件类型：2路IC速断故障（对应CAP2_IC_QUICK_CURRENT） */
+    EVENT_TYPE_QUICK_CURRENT3_IC   = 0x000FU,  /* 事件类型：3路IC速断故障（对应CAP3_IC_QUICK_CURRENT） */
+    EVENT_TYPE_QUICK_CURRENT4_IC   = 0x0010U,  /* 事件类型：4路IC速断故障（对应CAP4_IC_QUICK_CURRENT） */
+
+    /* ==================== 零序故障（17~20，原9~12顺延）==================== */
+    EVENT_TYPE_OVER_VOL_ZERO1      = 0x0011U,  /* 事件类型：1路零序过压故障 */
+    EVENT_TYPE_OVER_VOL_ZERO2      = 0x0012U,  /* 事件类型：2路零序过压故障 */
+    EVENT_TYPE_OVER_VOL_ZERO3      = 0x0013U,  /* 事件类型：3路零序过压故障 */
+    EVENT_TYPE_OVER_VOL_ZERO4      = 0x0014U,  /* 事件类型：4路零序过压故障 */
+
+    /* ==================== 系统电压故障（21~22，原13~14顺延）==================== */
+    EVENT_TYPE_OVER_VOL            = 0x0015U,  /* 事件类型：系统过压故障 */
+    EVENT_TYPE_UNDER_VOL           = 0x0016U,  /* 事件类型：系统欠压故障 */
+
+    /* ==================== 拒投故障（23~26，原15~18顺延）==================== */
+    EVENT_TYPE_IN_STOP1            = 0x0017U,  /* 事件类型：1路电容拒投故障 */
+    EVENT_TYPE_IN_STOP2            = 0x0018U,  /* 事件类型：2路电容拒投故障 */
+    EVENT_TYPE_IN_STOP3            = 0x0019U,  /* 事件类型：3路电容拒投故障 */
+    EVENT_TYPE_IN_STOP4            = 0x001AU,  /* 事件类型：4路电容拒投故障 */
+
+    /* ==================== 拒切故障（27~30，原19~22顺延）==================== */
+    EVENT_TYPE_QUIT_STOP1          = 0x001BU,  /* 事件类型：1路电容拒切故障 */
+    EVENT_TYPE_QUIT_STOP2          = 0x001CU,  /* 事件类型：2路电容拒切故障 */
+    EVENT_TYPE_QUIT_STOP3          = 0x001DU,  /* 事件类型：3路电容拒切故障 */
+    EVENT_TYPE_QUIT_STOP4          = 0x001EU,  /* 事件类型：4路电容拒切故障 */
+
+    /* ==================== 外部故障（31~34，原23~26顺延）==================== */
+    EVENT_TYPE_ERR1                = 0x001FU,  /* 事件类型：1路外部故障 */
+    EVENT_TYPE_ERR2                = 0x0020U,  /* 事件类型：2路外部故障 */
+    EVENT_TYPE_ERR3                = 0x0021U,  /* 事件类型：3路外部故障 */
+    EVENT_TYPE_ERR4                = 0x0022U,  /* 事件类型：4路外部故障 */
+
+    /* ==================== 电源故障（35，原27顺延）==================== */
+    EVENT_TYPE_POWER_OFF           = 0x0023U,  /* 事件类型：前段总闸断电故障 */
+
+    /* ==================== 正常操作（36~43，原28~39顺延）==================== */
+    EVENT_TYPE_IN1                 = 0x0024U,  /* 事件类型：1路电容投入操作 */
+    EVENT_TYPE_IN2                 = 0x0025U,  /* 事件类型：2路电容投入操作 */
+    EVENT_TYPE_IN3                 = 0x0026U,  /* 事件类型：3路电容投入操作 */
+    EVENT_TYPE_IN4                 = 0x0027U,  /* 事件类型：4路电容投入操作 */
+    EVENT_TYPE_QUIT1               = 0x0028U,  /* 事件类型：1路电容切除操作 */
+    EVENT_TYPE_QUIT2               = 0x0029U,  /* 事件类型：2路电容切除操作 */
+    EVENT_TYPE_QUIT3               = 0x002AU,  /* 事件类型：3路电容切除操作 */
+    EVENT_TYPE_QUIT4               = 0x002BU   /* 事件类型：4路电容切除操作 */
 } Event_Type_E;
 
 /************************* 核心结构体定义 *************************/
@@ -369,7 +407,7 @@ typedef struct {
     uint8_t  cos_down;             /* cos下限：两位小数，×100存储（如92=0.92） */
     uint16_t times;                /* 限投次数：每日最大投切次数（如50=50次/日） */
     uint8_t  type;                 /* 投切方案：1=差容，2=组合，3=滤波，4=等容 */
-    uint8_t  factor;               /* 投切系数：两位小数，×100存储（如300=3.00） */
+    uint8_t  factor;               /* 电容容量系数：两位小数，×100存储（如300=3.00） */
     uint16_t delay_time_on;        /* 投入延时时间：单位s（如300=300s） */
     uint16_t delay_time_off;       /* 切除延时时间：单位s（如300=300s） */
     uint8_t  time_interval;        /* 投切间隔时间：单位s（如100=100s） */
@@ -377,12 +415,14 @@ typedef struct {
 
 /**
  * @brief 电容参数结构体（单通道）
- * @note  总长度：3字节（onf(1)+value(2)+state(1) → 修正：实际3字节）
+ * @note  总长度：
  */
 typedef struct {
     uint8_t   onf;                 /* 电容使能：0=无（禁用），1=有（启用） */
     uint16_t  value;               /* 电容值：四位数，单位kvar（如1=1kvar，100=100kvar） */
-    uint8_t   state;               /* 投切状态：0=不投，1=投入 */
+    uint8_t   state;               /* 投切状态：0=未投，处于切除状态，1=投入状态 */
+	  uint16_t  use_count;           /* 投切次数：用uint16_t避免溢出（uint8_t最多255次） */
+	  uint8_t   err;  							 /* 故障状态： 0：正常 1： 故障 */
 } Cap_Para_Struct;
 
 /**
@@ -419,7 +459,7 @@ typedef struct  {
  * @note  总长度：1字节
  */
 typedef struct  {
-    uint8_t mode;                  /* 运行模式：0x00=自动，0x01=手动 */
+    uint8_t mode;                  /* 运行模式：0x00=自动，0x01=调试 */
 } AutoManual_Para_Struct;
 
 /**
@@ -435,7 +475,7 @@ typedef struct  {
  * @note  总长度：1字节
  */
 typedef struct  {
-    char value;                 /* 报警值：0~61（对应不同报警类型，0=无报警） */
+	char value;                 /* 报警值：0~61（对应不同报警类型，0=无报警 1-60对应 报警1-60min  61:常开） */
 } Alarm_Para_Struct;
 
 /**
@@ -473,6 +513,21 @@ typedef struct {
     uint8_t   ct_ratio1;           /* 电流互感器变比：5A格式（如5=1000:5） */
 } Cap_Ratio_Para_Struct;
 
+/**
+ * @brief 统计清零日期结构体
+ * @note  总长度：6字节
+ */
+typedef struct {
+	
+	
+    uint8_t year;   // 年（如26表示2026年）
+    uint8_t month;  // 月（1~12）
+    uint8_t day;    // 日（1~31）
+    uint8_t hour;                  /* 小时：0~23 */
+    uint8_t minute;                /* 分钟：0~59 */
+    uint8_t second;                /* 秒：0~59 */	
+	
+} Stat_date;
 
 
 /**
@@ -501,9 +556,9 @@ extern  uint8_t g_language;  //语言  0：中午 1：英文
 
 extern Ratio_Para_Struct g_sys_pt_ct;  //系统pt、ct
 
-extern Protect_Para_Struct g_vol_h,g_vol_l;//过压保护、欠压保护
+extern volatile  Protect_Para_Struct g_vol_h,g_vol_l;//过压保护、欠压保护
 
-extern  Cap_Protect_Para_Struct  g_cap_protect[4];
+extern volatile   Cap_Protect_Para_Struct  g_cap_protect[4];
 extern  Com_Para_Struct  g_com;//通讯参数
 extern  Cap_Para_Struct  g_cap[4];//电容参数
 
@@ -512,9 +567,9 @@ extern  Cap_Num_Struct g_cap_num;//
 
 extern   Control_Para_Struct g_control_para;//控制参数
 extern   Stat_Para_Struct g_stat;//统计参数
-extern Cap_Ratio_Para_Struct  g_cap_ratio[4];
+extern volatile  Cap_Ratio_Para_Struct  g_cap_ratio[4];
 
-
+extern Stat_date  g_last_reset_date;
 
 /************************* 函数原型声明（所有读写函数均带返回值） *************************/
 /**
@@ -791,6 +846,21 @@ Para_Op_Result_E Get_Cap_Num(Cap_Num_Struct *para);
 Para_Op_Result_E Set_Cap_Num(const Cap_Num_Struct *new_para);
 
 
+/**
+ * @brief  读取统计清零参数
+ * @param  para：存储统计清零的结构体指针（输出参数）
+ * @return 无
+ * @note   内部调用Read_Param_With_Backup，支持主备区切换和失效恢复（仅内存默认值）
+ */
+Para_Op_Result_E Get_Stat_Date(Stat_date *para);
+
+/**
+ * @brief  设置统计清零参数
+ * @param  new_para：新参数结构体指针（输入参数）
+ * @return 无
+ * @note   主程序按需调用，不主动触发则不覆盖已有数据
+ */
+Para_Op_Result_E Set_Stat_Date(const Stat_date *new_para) ;
 
 // -------------------------- 事件日志操作接口 --------------------------
 /**
@@ -803,12 +873,30 @@ Para_Op_Result_E Set_Cap_Num(const Cap_Num_Struct *new_para);
 Para_Op_Result_E Write_Event_Log(Event_Type_E event_type, uint32_t event_data);
 
 /**
- * @brief  读取最新的系统事件日志
- * @param  event_log：事件日志缓冲区（输出，非NULL）
- * @return Para_Op_Result_E：操作结果（0=成功，1=无日志，其他=失败）
+ * @brief  读取指定路数（1-4路）的最新事件记录
+ * @param  chn_num：路数（仅支持1/2/3/4）
+ * @param  event_log：存储事件记录的结构体指针（输出参数）
+ * @return PARA_OP_OK：读取成功且事件有效；
+ *         PARA_OP_ERR_NULL_PTR：空指针；
+ *         PARA_OP_ERR_ADDR_OVERFLOW：路数越界；
+ *         EVENT_ERR：读取成功但事件无效（event_type=NONE）
+ * @note   依赖宏：EVENT_CHN_LATEST_ADDR/EVENT_CHN_LATEST_LEN
  */
-Para_Op_Result_E Read_Latest_Event_Log(Event_Log_Struct *event_log);
+Para_Op_Result_E Read_Chn_Latest_Event_Log(uint8_t chn_num, Event_Log_Struct *event_log);
 
+
+/**
+ * @brief  写入指定路数（1-4路）的最新事件记录
+ * @param  chn_num：路数（仅支持1/2/3/4）
+ * @param  event_log：待写入的事件记录结构体指针（输入参数）
+ * @return PARA_OP_OK：写入成功；
+ *         PARA_OP_ERR_NULL_PTR：空指针；
+ *         PARA_OP_ERR_ADDR_OVERFLOW：路数越界；
+ *         其他：FRAM写入失败码（由FM31256_FRAM_Write返回）
+ * @note   1. 写入前无需清空原有数据，直接覆盖；
+ *         2. 若需“清空事件”，可传入event_type=NONE的结构体
+ */
+Para_Op_Result_E Write_Chn_Latest_Event_Log(uint8_t chn_num, const Event_Log_Struct *event_log) ;
 /**
  * @brief  读取指定索引的系统事件日志
  * @param  index：日志索引（0~EVENT_LOG_CNT-1）
@@ -827,7 +915,7 @@ uint8_t Get_Event_Index(void);
 
 
 
-
+Para_Op_Result_E Read_Latest_20_Event_Logs(Event_Log_Struct *event_buf) ;
 
 
 

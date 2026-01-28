@@ -16,33 +16,33 @@
 #include "config.h"
 #include "time.h"
 #include "adc_key.h"
-
+#include "uart.h"
 
 
 volatile bit flag_timer_10ms = 0;
 
-volatile uint32_t system_time_ms = 0;
+volatile uint32_t system_time_ms = 0; //10ms计数
 
+extern void Protect_Timer_10ms_Handler(void);
 
+ extern void Watchdog_Feed(void);
 
-//1MS
+// 10MS 定时器0初始化（22.1184MHz晶振）
 void Timer0_Init(void) {
     uint8_t SFRPAGE_SAVE = SFRPAGE;
     SFRPAGE = TIMER01_PAGE; 
 
- 
     TMOD |= 0x01;   // 定时器0：16位定时器模式（模式1）
-    CKCON =0X00;//定时器0,1 使用sys/12
+    CKCON = 0X00;   // 定时器0,1 使用Fosc/12（22.1184MHz/12=1.8432MHz）
 
-    TH0 = 0xF8;     // 高8位
-    TL0 = 0xCD;     // 低8位
+    // 核心修改：10ms定时初值（22.1184MHz晶振）
+    TH0 = 0xB8;     // 高8位：0xB8（十进制184）
+    TL0 = 0x00;     // 低8位：0x00
 
-
-    ET0 = 1;         // 使能定时器0中断
-    TR0 = 1;         // 启动定时器0
+    ET0 = 1;        // 使能定时器0中断
+    TR0 = 1;        // 启动定时器0
     SFRPAGE = SFRPAGE_SAVE; // 恢复SFR页面
 }
-
 /**
  * @brief  初始化 Timer2，实现每 10ms 定时中断
  *         使用 16 位自动重载模式
@@ -163,15 +163,41 @@ uint32_t Get_SystemTime(void) {
 // 定时器0中断服务程序
 void Timer0_ISR() interrupt 1 {
 
-
+    uint8_t SFRPAGE_SAVE = SFRPAGE;
+    SFRPAGE = TIMER01_PAGE; 
     
-    TH0 = 0xF8;     // 重装初值（避免计时偏差）
-    TL0 = 0xCD;
+    TH0 = 0xB8;     // 高8位：0xB8（十进制184）
+    TL0 = 0x00;     // 低8位：0x00
 
     TF0 = 0;
-
-    // 核心：1ms计数器加1（仅1条指令，极致精简）
+   SFRPAGE=SFRPAGE_SAVE;
+    // 核心：10ms计数器加1（仅1条指令，极致精简）
     system_time_ms++; 
+	 Watchdog_Feed();
+	 Protect_Timer_10ms_Handler();
+	
+    if(rx_state == 1) //通讯接收超时计时
+    {
+        if(rx_timeout_cnt < MB_FRAME_TIMEOUT)
+        {
+            rx_timeout_cnt++;
+            // 2. 超时判定：达到阈值则标记接收完成
+            if(rx_timeout_cnt >= MB_FRAME_TIMEOUT)
+            {
+                rx_state = 2; // 2=接收完成，等待解析
+                rx_timeout_cnt = 0;
+            }
+        }
+    }	
+	    if(com_led_flag && (com_led_timer > 0))
+    {
+        com_led_timer--;
+        if(com_led_timer == 0)
+        {
+            LED_COM =1; // 通讯灯灭
+            com_led_flag = 0;          // 清除闪灯标志
+        }
+    }	
 }
 
 
@@ -197,67 +223,5 @@ void Timer3_ISR() interrupt 14 {
 }
 
 
-// 停止指定定时器
-void Timer_Stop(uint8_t timer_num) {
-    if(timer_num >= 5) return;
-    
-    switch(timer_num) {
-        case 0:
-            TR0 = 0;    // 停止定时器0
-            ET0 = 0;    // 禁止定时器0中断
-            break;
-        case 1:
-            TR1 = 0;    // 停止定时器1
-            ET1 = 0;    // 禁止定时器1中断
-            break;
-        case 2:
-            TR2 = 0;    // 停止定时器2
-            ET2 = 0;    // 禁止定时器2中断
-            break;
-        case 3:
-            TR3 = 0;    // 停止定时器3
-//            ET3 = 0;    // 禁止定时器3中断
-				    EIE2&=~0X01;
-            break;
-        case 4:
-            TR4 = 0;    // 停止定时器4
-//            ET4 = 0;    // 禁止定时器4中断
-		        EIE2&=~0X04;				
-            break;
-    }
-    
 
-}
-
-// 启动指定定时器
-void Timer_Start(uint8_t timer_num) {
-    if(timer_num >= 5) return;
-    
-    switch(timer_num) {
-        case 0:
-            TR0 = 1;    // 启动定时器0
-            ET0 = 1;    // 使能定时器0中断
-            break;
-        case 1:
-            TR1 = 1;    // 启动定时器1
-            ET1 = 1;    // 使能定时器1中断
-            break;
-        case 2:
-            TR2 = 1;    // 启动定时器2
-            ET2 = 1;    // 使能定时器2中断
-            break;
-        case 3:
-            TR3 = 1;    // 启动定时器3
-//            ET3 = 1;    // 使能定时器3中断
-						EIE2|=0X01;
-            break;
-        case 4:
-            TR4 = 1;    // 启动定时器4
-//            ET4 = 1;    // 使能定时器4中断
-		        EIE2|=0X04;				
-            break;
-    }
-    
-
-}
 

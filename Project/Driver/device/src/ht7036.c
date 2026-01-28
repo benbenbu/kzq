@@ -5,12 +5,13 @@
 #include "fm31256.h"
 #include "data_save.h"
 #include "delay.h"
+#include "data_deal.h"
 /******
 *
 *
 *  为了不使用浮点数计算，采集的4路电流寄存器值扩大1000倍，最小分辨率1ma，采集的4路零序电压扩大10倍，最小分辨率0.1v
-*  1uo-g_meter_chip[0].v2    1ia-g_meter_chip[0].v1     1ic-g_meter_chip[0].v3    
-*  2uo-g_meter_chip[0].v4    2ia-g_meter_chip[0].v5     2ic-g_meter_chip[0].v6  
+*  1uo-g_meter_chip[0].v2 ua   1ia-g_meter_chip[0].v1 ia    1ic-g_meter_chip[0].v3  ib  
+*  2uo-g_meter_chip[0].v4 ub   2ia-g_meter_chip[0].v5  ic   2ic-g_meter_chip[0].v6  uc
 
 *  3uo-g_meter_chip[1].v2    3ia-g_meter_chip[1].v1     3ic-g_meter_chip[1].v3    
 *  4uo-g_meter_chip[1].v4    4ia-g_meter_chip[1].v5     4ic-g_meter_chip[1].v6  
@@ -19,13 +20,9 @@
 
 
 
-static uint32_t  adj_data1=0; //校表数据校验和1
-static uint32_t  adj_data2=0;
-
-meter_gain g_PhaseABC = {6, 4, 0, 0}; // 电压电流增益 硬件电路决定
 
 
-MeterChipStatus  g_meter_chip[4]={0};//0不用，1-4对应4路芯片
+MeterChipStatus  g_meter_chip[4]={0};//2不用，0-3对应4路芯片
 
 
 /* 内部函数 */
@@ -68,12 +65,14 @@ uint8_t Ht7036_init(void)
 
 	while(num--)
 	{
-  err=Ht7036_Config(0);
-  err=Ht7036_Config(1);	
-  err=Ht7036_Config(2);	
-  err=Ht7036_Config(3);	
+  err|=Ht7036_Config(1);
+	if(g_cap_num.cap_num>2)
+  err|=Ht7036_Config(2);	
+//  err=Ht7036_Config(3);	
+  err|=Ht7036_Config(4);	
 		if(err==0)
 			break;
+	err=0;
 	}
 	if(num>0)
 		return 0;//成功
@@ -89,8 +88,7 @@ void Ht7036_read(char num)
     u32 flag = 0; 
     u32 flag1 = 0; 
     u32 flag2 = 0; 	
-    MeterChipStatus *p_chip = &g_meter_chip[num];
-    p_chip->chip_id = num;
+    MeterChipStatus *p_chip = &g_meter_chip[num-1];
     p_chip->data_ready = 0; // 每次读取先清零就绪标志
 
     if (num < 1 || num > 4) {
@@ -98,8 +96,7 @@ void Ht7036_read(char num)
         return;
     }
     // ------------------------ 7036芯片处理（num=1/2） ------------------------
-    if (num < 2) {
-        p_chip->type = CHIP_TYPE_7036;			
+    if (num < 3) {
         err |= Ht7036_Spi_Read_Check(num, Checksum_Register1, &flag1);
 
         // 1. SPI通信错误处理
@@ -116,7 +113,7 @@ void Ht7036_read(char num)
 			  if((p_chip->check1!=flag1)||(p_chip->check2!=flag2))
 				{
 			      p_chip->err_flag |= 0x02; // 校表错误
-			      return;
+//			      return;
 				}
         // 读取7036状态标志寄存器（INTFlag）
         err |= Ht7036_Spi_Read_Check(num, r_INTFlag, &flag);
@@ -127,12 +124,10 @@ void Ht7036_read(char num)
             return;
         }
 
-        // 2. 标志位解析（无SPI错误时）
-        p_chip->err_flag &= ~0xFF; // 先清空错误标志
-
         // 2.1 未校表标志（0x01）
         if (flag & HT7036_FLAG_UNCALIB) {
             p_chip->err_flag |= 0x02; // 标记未校表
+//					  return;
         }
 
         // 2.2 有效值更新标志（0x02）
@@ -163,34 +158,28 @@ void Ht7036_read(char num)
         }
     // ------------------------ 7053芯片处理（num=3/4） ------------------------
     } else {
-        p_chip->type = CHIP_TYPE_7053;
-			
-			
-        err |= Ht7036_Spi_Read_Check(num, Checksum_Register1, &flag1);
+		
+        err |= Ht7036_Spi_Read_Check(num, SUMChecksum_Add_7053, &flag1);
 
         // 1. SPI通信错误处理
-        if (err) {
+        if (err&READ_ERR) {
             p_chip->err_flag |= 0x01; // 标记SPI通信错误
             return;
         }			
 			
-			  if(p_chip->check1!=flag1)
+			  if(p_chip->check2!=flag1)
 				{
 			      p_chip->err_flag |= 0x02; // 校表错误
-			      return;
+//			      return;
 				}
         // 读取7053状态标志寄存器（EMUIF）
         err |= Ht7036_Spi_Read_Check(num, EMUIF, &flag);
 
         // 1. SPI通信错误处理
-        if (err) {
+        if (err&READ_ERR) {
             p_chip->err_flag |= 0x01; // 标记SPI通信错误
             return;
         }
-
-        // 2. 标志位解析（无SPI错误时）
-        p_chip->err_flag &= ~0xFF; // 先清空错误标志
-
 
         // 2.3 有效值更新标志（0x80）
         if (flag & HT7053_FLAG_VALID_UPD) {
@@ -207,7 +196,7 @@ void Ht7036_read(char num)
             err |= Ht7036_Spi_Read_Check(num, PowerQ1, &(p_chip->rq));  // 无功功率
 
             // SPI读取数据错误处理
-            if (err) {
+            if (err&READ_ERR) {
                 p_chip->err_flag |= 0x01; // 标记SPI通信错误
                 return;
             }
@@ -227,18 +216,18 @@ void Ht7036_read(char num)
  * @description: ht7036初始化
  * @param {u8} type
  * @return {*}  0x11校表数据不对，
- * @Author: zf
+ * @Author: num：1-4 
  * @Date: 2024-01-10 16:46:58
  */
 char Ht7036_Config(u8 num)
 {
-    unsigned char dad[30];
+    unsigned char dad[40];
     uint8_t err=0;
 	  uint32_t check1,check2;//fm31256存的校表和
 	  uint32_t check3,check4;	//计量芯片读出的校表和  
     uint8_t len;
-	
-    err|=FM31256_Write_Protect(0);//关闭写保护	
+	  FloatToBytesUnion a={0};
+//    err|=FM31256_Write_Protect(0);//关闭写保护	
 	
     if(num<3)
 			len=HT7036_CALIB_LEN;
@@ -246,14 +235,14 @@ char Ht7036_Config(u8 num)
 			len=HT7053_CALIB_LEN;			
 	
 	  err|=FM31256_Read_Calib( num,dad,len,&check1,&check2);
-		
-	  if(len<3)
+
+	  if(num<3)
 		{
 		err|=Ht7036_Spi_Write_Check(num,Adjust_Write, Adjust_Enable);      // 打开校准数据写
 		err|=Ht7036_Spi_Write_Check(num,w_ModeCfg, 0xA87EUL);   // 填写模式配置寄存器      1.8Mhz 更新速率28.8，稳定慢速，外部ub
 		err|=Ht7036_Spi_Write_Check(num,w_EMCfg, 0x0000UL);     // 算法控制器 三相四线夹角采用算法2
 		err|=Ht7036_Spi_Write_Check(num,w_EMUCfg, 0x0904UL);    // 填写EMU单元配置寄存器  关闭基波谐波测量  采样28.8k，高通增益校正，
-		err|=Ht7036_Spi_Write_Check(num,w_EMUIE, 0x0dUL);     // 开启数据更新中断,sag，过流中断
+		err|=Ht7036_Spi_Write_Check(num,w_EMUIE, 0x03UL);     // 开启数据更新中断
 		err|=Ht7036_Spi_Write_Check(num,w_ModuleCFG, 0x3C27); // 填写模拟模块使能寄存器  开启高通，低速spi
 		err|=Ht7036_Spi_Write_Check(num,w_PGACtrl, 0x0000);   // 各路ADC增益均为1
 		err|=Ht7036_Spi_Write_Check(num,w_Hfconst, Meter_HFConst);
@@ -261,31 +250,34 @@ char Ht7036_Config(u8 num)
 		err|=Ht7036_Spi_Write_Check(num,w_TCcoffB, 0x0DB8); //
 		err|=Ht7036_Spi_Write_Check(num,w_TCcoffC, 0xD1DA); //
 
-    err|=Ht7036_Spi_Write(num,w_ItRmsoffset, (uint16_t)dad[0] << 8 | dad[1]);
-    err|=Ht7036_Spi_Write(num,w_UaRmsoffse, (uint16_t)dad[2] << 8 | dad[3]);		
-    err|=Ht7036_Spi_Write(num,w_UbRmsoffse, (uint16_t)dad[4] << 8 | dad[5]);		
-    err|=Ht7036_Spi_Write(num,w_UcRmsoffse, (uint16_t)dad[6] << 8 | dad[7]);
-    err|=Ht7036_Spi_Write(num,w_IaRmsoffse, (uint16_t)dad[8] << 8 | dad[9]);
-    err|=Ht7036_Spi_Write(num,w_IbRmsoffse, (uint16_t)dad[10] << 8 | dad[11]);
-    err|=Ht7036_Spi_Write(num,w_IcRmsoffse, (uint16_t)dad[12] << 8 | dad[13]);
-    err|=Ht7036_Spi_Write(num,w_UgainA, (uint16_t)dad[14] << 8 | dad[15]);
-    err|=Ht7036_Spi_Write(num,w_UgainB, (uint16_t)dad[16] << 8 | dad[17]);
-    err|=Ht7036_Spi_Write(num,w_UgainC, (uint16_t)dad[18] << 8 | dad[19]);
-    err|=Ht7036_Spi_Write(num,w_IgainA, (uint16_t)dad[20] << 8 | dad[21]);
-    err|=Ht7036_Spi_Write(num,w_IgainB, (uint16_t)dad[22] << 8 | dad[23]);		
-    err|=Ht7036_Spi_Write(num,w_IgainC, (uint16_t)dad[24] << 8 | dad[25]);
+    err|=Ht7036_Spi_Write(num,w_UaRmsoffse, (uint16_t)dad[0] << 8 | dad[1]);
+    err|=Ht7036_Spi_Write(num,w_UbRmsoffse, (uint16_t)dad[2] << 8 | dad[3]);		
+    err|=Ht7036_Spi_Write(num,w_UcRmsoffse, (uint16_t)dad[4] << 8 | dad[5]);		
+    err|=Ht7036_Spi_Write(num,w_IaRmsoffse, (uint16_t)dad[6] << 8 | dad[7]);
+    err|=Ht7036_Spi_Write(num,w_IbRmsoffse, (uint16_t)dad[8] << 8 | dad[9]);
+    err|=Ht7036_Spi_Write(num,w_IcRmsoffse, (uint16_t)dad[10] << 8 | dad[11]);
+    err|=Ht7036_Spi_Write(num,w_UgainA, (uint16_t)dad[12] << 8 | dad[13]);
+    err|=Ht7036_Spi_Write(num,w_UgainB, (uint16_t)dad[14] << 8 | dad[15]);
+    err|=Ht7036_Spi_Write(num,w_UgainC, (uint16_t)dad[16] << 8 | dad[17]);
+    err|=Ht7036_Spi_Write(num,w_IgainA, (uint16_t)dad[18] << 8 | dad[19]);
+    err|=Ht7036_Spi_Write(num,w_IgainB, (uint16_t)dad[20] << 8 | dad[21]);
+    err|=Ht7036_Spi_Write(num,w_IgainC, (uint16_t)dad[22] << 8 | dad[23]);		
     err|=Ht7036_Spi_Write_Check(num,Adjust_Write, Adjust_Disable); // 关闭校准数据写	
-    err|=Ht7036_Spi_Write_Check(num,Adjust_Read, Adjust_Enable); // 使能读校表数据				
+		
+//    err|=Ht7036_Spi_Write_Check(num,Adjust_Read, Adjust_Disable); // 使能读计量数据				
+//    err|=Ht7036_Spi_Write_Check(num,Adjust_Read, Adjust_Enable); // 使能读校表数据				
     err|=Ht7036_Spi_Read_Check(num,Checksum_Register1, &check3); // 读校表和		
     err|=Ht7036_Spi_Read_Check(num,Checksum_Register2, &check4); // 读校表和		
-    err|=Ht7036_Spi_Write_Check(num,Adjust_Read, Adjust_Disable); // 使能读计量数据				
+		
 		if((check3!=check1)&&(check4!=check2))
 			return err|0x10;
+		g_meter_chip[num-1].check1=check1;
+		g_meter_chip[num-1].check2=check2;		
 		
 	}
 		else
 		{
-		err|=Ht7036_Spi_Write_Check(num,EMUIE, 0x5883UL);      // 电流正向过0中断，SAG中断，有效值更新中断 电压过零中断使能
+		err|=Ht7036_Spi_Write_Check(num,EMUIE, 0x0800UL);      // 有效值更新中断 
 		err|=Ht7036_Spi_Write_Check(num,WPREG, WRITE_OPEN_1);      // 打开写保护1 ，
 		err|=Ht7036_Spi_Write_Check(num,EMUCFG, 0x2000UL);   // 电压正向过零， 通道1
 		err|=Ht7036_Spi_Write_Check(num,FreqCFG, 0x3BUL);    // 采样频率7.2k，有效值更新27.4k  1.8m频率
@@ -301,8 +293,26 @@ char Ht7036_Config(u8 num)
 		err|=Ht7036_Spi_Write_Check(num,WPREG, 0);      // 关闭写保护	
     err|=Ht7036_Spi_Read_Check(num,SUMChecksum_Add_7053, &check3); // 读校表和
 		
-		if((check3!=check1))		
+		a.bytes[0]=dad[0];
+		a.bytes[1]=dad[1];
+		a.bytes[2]=dad[2];
+		a.bytes[3]=dad[3];			
+	  g_meter_chip[num-1].g_u	=a.f_val;
+		a.bytes[0]=dad[4];
+		a.bytes[1]=dad[5];
+		a.bytes[2]=dad[6];
+		a.bytes[3]=dad[7];			
+	  g_meter_chip[num-1].g_i	=a.f_val;		
+		
+		a.bytes[0]=dad[8];
+		a.bytes[1]=dad[9];
+		a.bytes[2]=dad[10];
+		a.bytes[3]=dad[11];			
+	  g_meter_chip[num-1].g_w	=a.f_val;		
+					
+		if((check3!=check2))		
 		   return err|0x10;
+		g_meter_chip[num-1].check2=check2;		
 		}
    return 0;
 
@@ -362,6 +372,7 @@ static uint8_t Ht7036_Spi_Read(uint8_t num, uint8_t address, u32 *read_data)
         goto ERR_EXIT; // 命令发送失败，跳转到错误处理
     }
 
+//		Delay_us(2);
     // 第五步：读取24位有效数据
     spi_err = SPI_Transceive_Byte(0xFF, &high_byte);  // 高8位
     if (spi_err != SPI_OK) goto ERR_EXIT;
@@ -386,7 +397,7 @@ static uint8_t Ht7036_Spi_Read(uint8_t num, uint8_t address, u32 *read_data)
         case 1: SPI_CS1 = 1; break;
         case 2: SPI_CS2 = 1; break;
         case 3: SPI_CS3 = 1; break;
-        case 4: SPI_CS4 = 0; break;				
+        case 4: SPI_CS4 = 1; break;				
     }
 		
 
@@ -399,7 +410,7 @@ ERR_EXIT:
         case 1: SPI_CS1 = 1; break;
         case 2: SPI_CS2 = 1; break;
         case 3: SPI_CS3 = 1; break;
-        case 4: SPI_CS4 = 0; break;	
+        case 4: SPI_CS4 = 1; break;	
     }
     return READ_ERR;
 }
@@ -490,10 +501,10 @@ static uint8_t Ht7036_Spi_Read_Check(uint8_t num, uint8_t address, uint32_t *rea
     uint8_t ret = OK;
     uint32_t bck_data = 0;
     uint8_t read_cmd = address & 0x7F; // 读命令（Bit7=0）
-		uint8_t retry = 2;
-    uint8_t bck_read_ret = READ_ERR; // 初始化BCKREG读取状态为“失败”
-    uint32_t retry_bck = 0;	
-    uint32_t retry_data = 0;	
+//		uint8_t retry = 2;
+//    uint8_t bck_read_ret = READ_ERR; // 初始化BCKREG读取状态为“失败”
+//    uint32_t retry_bck = 0;	
+//    uint32_t retry_data = 0;	
     // 参数校验
     if (read_data == NULL || num < 1 || num > 4) {
         return PARA_ERR;
@@ -517,33 +528,33 @@ static uint8_t Ht7036_Spi_Read_Check(uint8_t num, uint8_t address, uint32_t *rea
         return CHECKSUM_ERR;
     }
 
-   while (retry--) {
-        // 调用重构后的BCKREG读取函数，获取“操作状态”而非数据值
-   bck_read_ret = Ht7036_Read_BCKREG(num, &bck_data);
-   if (bck_read_ret == OK) { // 仅当“读取操作成功”时，退出重试
-            break;
-        }
-    }
-    // 判断：BCKREG读取操作是否成功
-    if (bck_read_ret != OK) {
-        return READ_ERR; // 多次重试仍读取失败（硬件/通讯问题）
-    }
-    // BCKREG读取成功 → 对比数据（即使数据为0，也正常对比）
-    if (bck_data != *read_data) {
-        // 重试一次读操作
-        ret = Ht7036_Spi_Read(num, address, &retry_data);
-        if (ret != OK) {
-            return READ_ERR;
-        }
-        // 验证重试后的数据与BCKREG是否一致（再次读BCKREG）
+//   while (retry--) {
+//        // 调用重构后的BCKREG读取函数，获取“操作状态”而非数据值
+//   bck_read_ret = Ht7036_Read_BCKREG(num, &bck_data);
+//   if (bck_read_ret == OK) { // 仅当“读取操作成功”时，退出重试
+//            break;
+//        }
+//    }
+//    // 判断：BCKREG读取操作是否成功
+//    if (bck_read_ret != OK) {
+//        return READ_ERR; // 多次重试仍读取失败（硬件/通讯问题）
+//    }
+//    // BCKREG读取成功 → 对比数据（即使数据为0，也正常对比）
+//    if (bck_data != *read_data) {
+//        // 重试一次读操作
+//        ret = Ht7036_Spi_Read(num, address, &retry_data);
+//        if (ret != OK) {
+//            return READ_ERR;
+//        }
+//        // 验证重试后的数据与BCKREG是否一致（再次读BCKREG）
 
-        ret = Ht7036_Read_BCKREG(num, &retry_bck);
-        if (ret != OK || retry_data != retry_bck) {
-            return BCKREG_ERR; // 数据不一致（非读取失败）
-        }
-        // 重试成功，更新数据
-        *read_data = retry_data;
-    }
+//        ret = Ht7036_Read_BCKREG(num, &retry_bck);
+//        if (ret != OK || retry_data != retry_bck) {
+//            return BCKREG_ERR; // 数据不一致（非读取失败）
+//        }
+//        // 重试成功，更新数据
+//        *read_data = retry_data;
+//    }
 
     return OK;
 }
@@ -560,7 +571,7 @@ static uint8_t Ht7036_Spi_Write_Check(uint8_t num, uint8_t address, uint32_t wri
     uint8_t ret = OK;
     uint32_t bck_data = 0;
     uint8_t write_cmd = address | 0x80; // 写命令（Bit7=1）
-		uint8_t retry = 2;
+//		uint8_t retry = 2;
     uint8_t bck_read_ret = READ_ERR; // 初始化BCKREG读取状态为“失败”
     uint32_t retry_bck = 0;	
     // 参数校验
@@ -585,29 +596,29 @@ static uint8_t Ht7036_Spi_Write_Check(uint8_t num, uint8_t address, uint32_t wri
         return CHECKSUM_ERR;
     }
 
-		while (retry--) {
-        bck_read_ret = Ht7036_Read_BCKREG(num, &bck_data);
-        if (bck_read_ret == OK) {
-            break;
-        }
-    }
-    if (bck_read_ret != OK) {
-        return READ_ERR;
-    }
+//		while (retry--) {
+//        bck_read_ret = Ht7036_Read_BCKREG(num, &bck_data);
+//        if (bck_read_ret == OK) {
+//            break;
+//        }
+//    }
+//    if (bck_read_ret != OK) {
+//        return READ_ERR;
+//    }
     // 对比数据（即使写入的是0，也正常判断）
-    if (bck_data != write_data) {
-        // 重试一次写操作
-        ret = Ht7036_Spi_Write(num, address, write_data);
-        if (ret != OK) {
-            return WRITE_ERR;
-        }
-        // 再次验证BCKREG
+//    if (bck_data != write_data) {
+//        // 重试一次写操作
+//        ret = Ht7036_Spi_Write(num, address, write_data);
+//        if (ret != OK) {
+//            return WRITE_ERR;
+//        }
+//        // 再次验证BCKREG
 
-        ret = Ht7036_Read_BCKREG(num, &retry_bck);
-        if (ret != OK || retry_bck != write_data) {
-            return BCKREG_ERR;
-        }
-    }
+//        ret = Ht7036_Read_BCKREG(num, &retry_bck);
+//        if (ret != OK || retry_bck != write_data) {
+//            return BCKREG_ERR;
+//        }
+//    }
 
     return OK;
 }
@@ -695,84 +706,79 @@ static uint8_t Ht7036_Read_BCKREG(uint8_t num, uint32_t *bck_data) {
 
 
 
-//	  Ht_7036_Rest();//4个计量芯片复位；
-//    Ht7036_Spi_Write(0xC3, 0x000000); // 清教表数据
 
 
 
 
 
 
+/**
+ * @description: ht7036 分相零漂
+ * @param {u8} *adj_zero_data
+ * @return {*}
+ * @Author: zf
+ * @Date: 2024-01-26 11:32:00
+ */
+ void Ht7036_Phase_Zero(uint8_t num, uint8_t phase)
+{
+    uint32_t att;
+    uint8_t address1, address2;
 
-///**
-// * @description: ht7036 分相零漂
-// * @param {u8} *adj_zero_data
-// * @return {*}
-// * @Author: zf
-// * @Date: 2024-01-26 11:32:00
-// */
-// void Ht7036_Phase_Zero(Phase phase)
-//{
-//    uint32_t att;
-//    uint8_t address1, address2, address3, address4;
-//	    if (phase == Phase_T)
-//    {
-//        address3 = r_ItRms;
-//        address4 = w_ItRmsoffset;
-//    }
-//    if (phase == Phase_A)
-//    {
-//        address1 = r_UaRms;
-//        address2 = w_UaRmsoffse;
-//        address3 = r_IaRms;
-//        address4 = w_IaRmsoffse;
-//    }
-//    if (phase == Phase_B)
-//    {
-//        address1 = r_UbRms;
-//        address2 = w_UbRmsoffse;
-//        address3 = r_IbRms;
-//        address4 = w_IbRmsoffse;
-//    }
-//    if (phase == Phase_C)
-//    {
-//        address1 = r_UcRms;
-//        address2 = w_UcRmsoffse;
-//        address3 = r_IcRms;
-//        address4 = w_IcRmsoffse;
-//    }
+    if (phase == 1)
+    {
+        address1 = r_IaRms;
+        address2 = w_IaRmsoffse;
+    }
+    if (phase == 2)
+    {
+        address1 = r_IbRms;
+        address2 = w_IbRmsoffse;
+    }
+    if (phase == 3)
+    {
+        address1 = r_UaRms;
+        address2 = w_UaRmsoffse;
+    }
+		
 
-//    if (phase != Phase_T)
-//    {
-//        att = Ht7036_Read_Count_Data(address1);
-//        att=_mul16(att, att);
-//        att=_mul16(att, g_PhaseABC.V_Amp_Factor);       
-//        att = att>>15;
+    if (phase == 4)
+    {
+        address1 = r_IcRms;
+        address2 = w_IcRmsoffse;
+    }
+    if (phase == 5)
+    {
+        address1 = r_UcRms;
+        address2 = w_UcRmsoffse;
 
-//        Ht7036_Spi_Write(address2, att);
-////			printf("uz=%lu",att);
-//	
-//    }
-//    att = Ht7036_Read_Count_Data(address3);
-//    att=_mul16(att, att);      
-//    att = att>>15;
-//    att=att/g_PhaseABC.I_Amp_Factor;
-//    Ht7036_Spi_Write(address4, att);
-//		
-////			printf("iz=%lu",att);		
+    }
+    if (phase == 6)
+    {
+        address1 = r_UbRms;
+        address2 = w_UbRmsoffse;
 
-//}
+    }
+        Ht7036_Spi_Read_Check(num,address1,&att);
+        att=att*att;     
+        att = att>>15;
+		 if((phase!=3)&&(phase!=6))
+     att=att/6;		
+        Ht7036_Spi_Write_Check(num,address2, att);
 
-///**
-// * @description: ht7036 零漂校准
-// * @param {u8} *adj_zero_data
-// * @return {*}
-// * @Author: zf
-// * @Date: 2024-01-26 11:32:00
-// */
-//void Ht7036_Adj_Zero(void)
-//{	
-//	
+		
+}
+
+/**
+ * @description: ht7036 零漂校准
+ * @param {u8} *adj_zero_data
+ * @return {*}
+ * @Author: zf
+ * @Date: 2024-01-26 11:32:00
+ */
+void Ht7036_Adj_Zero(void)
+{	
+	uint8_t num=1;
+	uint8_t j;
 //		Ht_7036_Rest();	
 //    Ht7036_Spi_Write(0xC3, 0x000000); // 清教表数据
 
@@ -787,216 +793,320 @@ static uint8_t Ht7036_Read_BCKREG(uint8_t num, uint32_t *bck_data) {
 //        Ht7036_Spi_Write(w_TCcoffA, 0xFF00); //
 //        Ht7036_Spi_Write(w_TCcoffB, 0x0DB8); //
 //        Ht7036_Spi_Write(w_TCcoffC, 0xD1DA); //
-//			
+	
+	if(g_cap_num.cap_num>2)	
+			j=3;
+	else
+		j=2;
+    for(num=1;num<j;num++)
+	  {
+			Ht7036_Spi_Write_Check(num,0xC9, 0x00005A); // 打开校准数据写
 
-//			Ht7036_Spi_Write(0xC9, 0x00005A); // 打开校准数据写
+
+			Ht7036_Spi_Write_Check(num,w_UaRmsoffse, 0);		
+			Ht7036_Spi_Write_Check(num,w_UbRmsoffse, 0);		
+			Ht7036_Spi_Write_Check(num,w_UcRmsoffse, 0);	
+			Ht7036_Spi_Write_Check(num,w_IaRmsoffse, 0);	
+			Ht7036_Spi_Write_Check(num,w_IbRmsoffse, 0);
+			Ht7036_Spi_Write_Check(num,w_IcRmsoffse, 0);
+	    Ht7036_Spi_Write_Check(num,0xC9, 0x000001); // 关闭校准数据写
+			
+		}
+		Delay_ms(100);
+		Ht7036_Spi_Write_Check(1,0xC9, 0x00005A); // 打开校准数据写
+		Ht7036_Spi_Write_Check(2,0xC9, 0x00005A); // 打开校准数据写		
+    Ht7036_Phase_Zero(1, 1);
+    Ht7036_Phase_Zero(1, 2);		
+    Ht7036_Phase_Zero(1, 3);	
+    Ht7036_Phase_Zero(1, 4);
+    Ht7036_Phase_Zero(1, 5);		
+    Ht7036_Phase_Zero(1, 6);	
+		
+    Ht7036_Phase_Zero(2, 1);		
+    Ht7036_Phase_Zero(2, 2);
+		Ht7036_Phase_Zero(2, 3);
+		
+    Ht7036_Phase_Zero(2, 4);
+    Ht7036_Phase_Zero(2, 5);		
+    Ht7036_Phase_Zero(2, 6);			
+		
+	    Ht7036_Spi_Write_Check(1,0xC9, 0x000001); // 关闭校准数据写
+	    Ht7036_Spi_Write_Check(2,0xC9, 0x000001); // 关闭校准数据写
+}
+char Ht7036_Zero_Check(void)
+{
+    uint32_t att;
+
+    Ht7036_Spi_Read_Check(1,r_IaRms,&att);
+
+    if (att > 0X500)
+        return 1;
+     Ht7036_Spi_Read_Check(1,r_IbRms,&att);
+
+    if (att > 0X500)
+
+        return 2;
+    Ht7036_Spi_Read_Check(1,r_UaRms,&att);
+
+    if (att > 0X500)
+
+        return 3;
+
+    Ht7036_Spi_Read_Check(1,r_IcRms,&att);
+
+    if (att > 0X500)
+        return 4;
+     Ht7036_Spi_Read_Check(1,r_UcRms,&att);
+
+    if (att > 0X500)
+        return 5;
+     Ht7036_Spi_Read_Check(1,r_UbRms,&att);
+		
+    if (att > 0X500)
+        return 6;
+		if(g_cap_num.cap_num>2)
+		{
+    Ht7036_Spi_Read_Check(2,r_IaRms,&att);
+
+    if (att > 0X500)
+        return 7;
+     Ht7036_Spi_Read_Check(2,r_IbRms,&att);
+
+    if (att > 0X500)
+
+        return 8;
+    Ht7036_Spi_Read_Check(2,r_UaRms,&att);
+
+    if (att > 0X500)
+
+        return 9;
+
+    Ht7036_Spi_Read_Check(2,r_IcRms,&att);
+
+    if (att > 0X500)
+        return 10;
+    Ht7036_Spi_Read_Check(2,r_UcRms,&att);
+
+    if (att > 0X500)
+        return 11;
+    att = Ht7036_Spi_Read_Check(2,r_UbRms,&att);
+		
+    if (att > 0X500)
+        return 12;
+	}			
+				
+    Ht7036_Spi_Read_Check(4,Rms_U,&att);
+
+    if (att > 0X500)
+        return 13;
+    Ht7036_Spi_Read_Check(4,Rms_I1,&att);
+		
+    if (att > 0X500)
+        return 14;				
+		return 0;
+}
+
+/**
+ * @description: ht7036 分相增益
+ * @param {u8} *adj_zero_data
+ * @return {*}
+ * @Author: zf
+ * @Date: 2024-01-26 11:32:00
+ */
+static void Ht7036_Phase_Gain(uint8_t num, uint8_t phase )
+{
+    uint32_t att;
+    float a;
+    uint8_t address1, address2;
+    if (phase == 1)
+    {
+        address1 = r_IaRms;
+        address2 = w_IgainA;
+    }
+    if (phase == 2)
+    {
+        address1 = r_IbRms;
+        address2 = w_IgainB;
+    }
+    if (phase == 3)
+    {
+        address1 = r_UaRms;
+        address2 = w_UgainA;
+    }
+		
+
+    if (phase == 4)
+    {
+        address1 = r_IcRms;
+        address2 = w_IgainC;
+    }
+    if (phase == 5)
+    {
+        address1 = r_UcRms;
+        address2 = w_UgainC;
+
+    }
+    if (phase == 6)
+    {
+        address1 = r_UbRms;
+        address2 = w_UgainB;
+
+    }
+     Ht7036_Spi_Read_Check(num,address1,&att);
+		
+    a = att / 8192.0;
+		
+		
+		 if((phase!=3)&&(phase!=6))
+		 {
+     a=a/6;							
+     a = (ADJUST_CURRENT / a) - 1.0;
+		 }
+		 else
+    a = (ADJUST_VOLTAGE / a) - 1.0;	
+		 
+    if (a >= 0)
+        att = a * 32768;
+    else
+        att = (uint32_t)(65536.0 + a * 32768.0);
+
+    Ht7036_Spi_Write_Check(num,address2, att);
 
 
-//			Ht7036_Spi_Write(w_UaRmsoffse, 0);
-//   			
-//		
-////			Ht7036_Spi_Write(w_UbRmsoffse, 0);
-////   			
-////		
-////			Ht7036_Spi_Write(w_UcRmsoffse, 0);
-//   			
-//	
-//			Ht7036_Spi_Write(w_IaRmsoffse, 0);
-//   			
-//		
-////			Ht7036_Spi_Write(w_IbRmsoffse, 0);
-////   			
-////		
-////			Ht7036_Spi_Write(w_IcRmsoffse, 0);
-//						
-//				  Delay_ms(800);
-//		
-//			Ht7036_Phase_Zero(Phase_A);
-//						  Delay_ms(800);
-////		Ht7036_Phase_Zero(Phase_B);
-////		Ht7036_Phase_Zero(Phase_C);		
 
-//	Ht7036_Spi_Write(0xC9, 0x000001); // 关闭校准数据写
 
-//    Ht7036_Spi_Write(0xC6, 0x00005A);			
-//		
-//    Ht7036_Spi_Write(0xC6, 0x000000);					
+}
+void Ht7036_Adj_Gain(void)
+{
+  uint8_t num,j;
+	
+		if(g_cap_num.cap_num>2)	
+			j=3;
+	else
+		j=2;
+    for(num=1;num<j;num++)
+	  {
+			Ht7036_Spi_Write_Check(num,0xC9, 0x00005A); // 打开校准数据写
 
-//}
-//char Ht7036_Zero_Check(void)
-//{
-//    uint32_t att;
+			Ht7036_Spi_Write_Check(num,w_UgainA, 0);
+   			
+		
+			Ht7036_Spi_Write_Check(num,w_UgainB, 0);
+   			
+		
+			Ht7036_Spi_Write_Check(num,w_UgainC, 0);
+   			
+	
+			Ht7036_Spi_Write_Check(num,w_IgainA, 0);
+   			
+		
+			Ht7036_Spi_Write_Check(num,w_IgainB, 0);
+   			
+		
+			Ht7036_Spi_Write_Check(num,w_IgainC, 0);
+	    Ht7036_Spi_Write_Check(num,0xC9, 0x000001); // 关闭校准数据写
+				
+		}
+		Delay_ms(100);
+		
+		Ht7036_Spi_Write_Check(1,0xC9, 0x00005A); // 打开校准数据写
+		Ht7036_Spi_Write_Check(2,0xC9, 0x00005A); // 打开校准数据写		
+    Ht7036_Phase_Gain(1, 1);
+    Ht7036_Phase_Gain(1, 2);		
+    Ht7036_Phase_Gain(1, 3);	
+    Ht7036_Phase_Gain(1, 4);
+    Ht7036_Phase_Gain(1, 5);		
+    Ht7036_Phase_Gain(1, 6);	
+		
+    Ht7036_Phase_Gain(2, 1);		
+    Ht7036_Phase_Gain(2, 2);
+		Ht7036_Phase_Gain(2, 3);
+    Ht7036_Phase_Gain(2, 4);
+    Ht7036_Phase_Gain(2, 5);		
+    Ht7036_Phase_Gain(2, 6);		
 
-//    att = Ht7036_Read_Count_Data(r_UaRms);
+		Ht7036_Spi_Write_Check(1,0xC9, 0x000001); // 关闭校准数据写
+		Ht7036_Spi_Write_Check(2,0xC9, 0x000001); // 关闭校准数据写			
+		
+}
 
-//    if (att > 0X100)
-//        return 1;
-////    att = Ht7036_Read_Count_Data(r_UbRms);
+char Ht7036_Gain_Check(void)
+{
+    uint32_t att;
+    float a;
 
-////    if (att > 0X334)
+     Ht7036_Spi_Read_Check(1,r_IaRms,&att);
+    a =  (float)att/ 8192.0/6 ;
+    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
+        return 1;
+		
+		
+		
+    Ht7036_Spi_Read_Check(1,r_IbRms,&att);
+   a =  (float)att / 8192.0/6 ;
+    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
+        return 2;
+		
+		
+    Ht7036_Spi_Read_Check(1,r_UaRms,&att);
+   a =  (float)att / 8192.0 ;
+    if ((((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) > 0.005) || (((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) < (-0.005)))
+        return 3;	
 
-////        return 2;
-////    att = Ht7036_Read_Count_Data(r_UcRms);
-//////			    rs_data(att);
-////    if (att > 0X334)
+		
+    Ht7036_Spi_Read_Check(1,r_IcRms,&att);
+    a =  (float)att / 8192.0/6;
+    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
+        return 4;
+		
+		
+    Ht7036_Spi_Read_Check(1,r_UcRms,&att);
+    a = (float)att / 8192.0/6 ;
+    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
+        return 5;
+		
+     Ht7036_Spi_Read_Check(1,r_UbRms,&att);
+    a = (float)att / 8192.0;
+    if ((((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) > 0.005) || (((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) < (-0.005)))    
+        return 6;
+		
+		
+     Ht7036_Spi_Read_Check(2,r_IaRms,&att);
+    a =  (float)att/ 8192.0/6 ;
+    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
+        return 7;
+		
+   Ht7036_Spi_Read_Check(2,r_IbRms,&att);
+   a =  (float)att / 8192.0/6 ;
+    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
+        return 8;
+		
+     Ht7036_Spi_Read_Check(1,r_UaRms,&att);
+   a =  (float)att / 8192.0 ;
+    if ((((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) > 0.005) || (((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) < (-0.005)))
+        return 9;
 
-////        return 3;
+				
+     Ht7036_Spi_Read_Check(1,r_IcRms,&att);
+    a =  (float)att / 8192.0/6;
+    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
+        return 10;
+		
+    Ht7036_Spi_Read_Check(1,r_UcRms,&att);
+    a = (float)att / 8192.0 / 6;
 
-//    att = Ht7036_Read_Count_Data(r_LineIaRrms);
+    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
+        return 11;
+		
+    Ht7036_Spi_Read_Check(1,r_UbRms,&att);
+    a = (float)att / 8192.0;
+    if ((((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) > 0.005) || (((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) < (-0.005)))    
+        return 12;
 
-//    if (att > 0X100)
-//        return 2;
-////    att = Ht7036_Read_Count_Data(r_LineIbRrms);
+		
+	return 0;
+}
 
-////    if (att > 0X500)
-////        return 5;
-////    att = Ht7036_Read_Count_Data(r_LineIcRrms);
-////		
-////    if (att > 0X500)
-////        return 6;
-//	
-//		return 0;
-//}
-
-///**
-// * @description: ht7036 分相增益
-// * @param {u8} *adj_zero_data
-// * @return {*}
-// * @Author: zf
-// * @Date: 2024-01-26 11:32:00
-// */
-//static void Ht7036_Phase_Gain(Phase phase)
-//{
-//    uint32_t att;
-//    float a;
-//    uint8_t address1, address2, address3, address4;
-//    if (phase == Phase_A)
-//    {
-//        address1 = r_UaRms;
-//        address2 = w_UgainA;
-//        address3 = r_IaRms;
-//        address4 = w_IgainA;
-//    }
-//    if (phase == Phase_B)
-//    {
-//        address1 = r_UbRms;
-//        address2 = w_UgainB;
-//        address3 = r_IbRms;
-//        address4 = w_IgainB;
-//    }
-//    if (phase == Phase_C)
-//    {
-//        address1 = r_UcRms;
-//        address2 = w_UgainC;
-//        address3 = r_IcRms;
-//        address4 = w_IgainC;
-//    }
-
-//    att = Ht7036_Read_Count_Data(address1);
-//		
-//    a = g_PhaseABC.V_Amp_Factor * att / 8192.0;
-//    a = (ADJUST_VOLTAGE / a) - 1.0;
-//    if (a >= 0)
-//        att = a * 32768;
-//    else
-//        att = (uint32_t)(65536.0 + a * 32768.0);
-
-//    Ht7036_Spi_Write(address2, att);
-////		printf("u=%lu",att);
-
-//    att = Ht7036_Read_Count_Data(address3);
-
-//    a = att / 8192.0 / g_PhaseABC.I_Amp_Factor;
-//    a = ADJUST_CURRENT / a - 1.0;
-//    if (a >= 0)
-//        att = a * 32768;
-//    else
-//        att = 65536 + a * 32768;
-//    Ht7036_Spi_Write(address4, att);
-////				printf("i=%lu",att);
-//}
-//void Ht7036_Adj_Gain(void)
-//{
-
-//			Ht7036_Spi_Write(0xC9, 0x00005A); // 打开校准数据写
-
-// 
-//			Ht7036_Spi_Write(w_UgainA, 0);
-//   			
-//		
-////			Ht7036_Spi_Write(w_UgainB, 0);
-////   			
-////		
-////			Ht7036_Spi_Write(w_UgainC, 0);
-//   			
-//	
-//			Ht7036_Spi_Write(w_IgainA, 0);
-//   			
-//		
-////			Ht7036_Spi_Write(w_IgainB, 0);
-////   			
-////		
-////			Ht7036_Spi_Write(w_IgainC, 0);
-//						
-//			Delay_ms(800);
-//   			
-//			Ht7036_Phase_Gain(Phase_A);
-//			Delay_ms(800);			
-////		Ht7036_Phase_Gain(Phase_B);
-////		Ht7036_Phase_Gain(Phase_C);		
-//			Ht7036_Spi_Write(0xC9, 0x000001); // 关闭校准数据写
-//			
-//			    Ht7036_Spi_Write(0xC6, 0x00005A);			
-//		
-//    Ht7036_Spi_Write(0xC6, 0x000000);	
-
-//		
-//}
-
-//char Ht7036_Gain_Check(void)
-//{
-//    uint32_t att;
-//    float a;
-
-//    att = Ht7036_Read_Count_Data(r_UaRms);
-////    rs_data(att);
-//    a = att* g_PhaseABC.V_Amp_Factor / 8192.0 ;
-
-//    if ((((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) > 0.005) || (((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) < (-0.005)))
-//        return 1;
-//    att = Ht7036_Read_Count_Data(r_UbRms);
-////   a = att* g_PhaseABC.V_Amp_Factor / 8192.0 ;
-//////		    rs_data(att);
-
-////    if ((((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) > 0.005) || (((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) < (-0.005)))
-////        return 2;
-////    att = Ht7036_Read_Count_Data(r_UcRms);
-////   a = att* g_PhaseABC.V_Amp_Factor / 8192.0 ;
-//////		    rs_data(att);
-
-////    if ((((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) > 0.005) || (((a - ADJUST_VOLTAGE) / ADJUST_VOLTAGE) < (-0.005)))
-////        return 3;
-
-//				
-//    att = Ht7036_Read_Count_Data(r_IaRms);
-//    a = att / 8192.0 / g_PhaseABC.I_Amp_Factor;
-
-//    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
-//        return 2;
-////    att = Ht7036_Read_Count_Data(r_IbRms);
-////    a = (float)att / 8192.0 / g_PhaseABC.I_Amp_Factor;
-
-////    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
-////        return 5;
-////    att = Ht7036_Read_Count_Data(r_IcRms);
-////    a = (float)att / 8192.0 / g_PhaseABC.I_Amp_Factor;
-
-////    if ((((a - ADJUST_CURRENT) / ADJUST_CURRENT) > 0.005) || (((a - ADJUST_CURRENT) / ADJUST_CURRENT) < (-0.005)))
-////    
-////        return 6;
-
-//	return 0;
-//}
 ///**
 // * @description: ht7036 分相功率校正
 // * @param {u8} *adj_zero_data
@@ -1466,89 +1576,140 @@ static uint8_t Ht7036_Read_BCKREG(uint8_t num, uint32_t *bck_data) {
 //		}
 //}
 
-//unsigned char Ht7036_Adjust_Data_Save(void)
-//{
-//    uint32_t att;
-//    uint8_t dat[24];
-//    uint8_t r_dat[24] = {1};
-//		EA=0;
-//    EEPROM_SectorErase(0x000900);
-//		EA=1;
-//	
-//		att = Ht7036_Spi_Read(0x3e);
-//		dat[0] = att >> 16;
-//    dat[1] = att>> 8;
-//    dat[2] = att;
-//				printf("3e=%lu \r\n",att);
-//    att = Ht7036_Spi_Read(0x5e);
-//		
-//    dat[3] = att >> 16;
-//    dat[4] = att>> 8;
-//    dat[5] = att;
-//		printf("5e=%lu \r\n",att);
-//    Ht7036_Spi_Write(0xC6, 0x00005A);
-//	
+unsigned char Ht7036_Adjust_Data_Save(void)
+{
+    uint32_t att;
+    uint8_t dat[40];
+    uint8_t num,j,i;
+		uint8_t err=0;
+		FloatToBytesUnion a;
+		if(g_cap_num.cap_num>2)
+			j=3;
+		else
+			j=2;
+  err|=FM31256_Write_Protect(0);//关闭写保护	
+    for(num=1;num<j;num++)
+		{
+	  i=0;
+    err|=Ht7036_Spi_Write(num,0xC6, 0x00005A);
+	
 
-//    att = Ht7036_Spi_Read(w_UaRmsoffse);
+    err|=Ht7036_Spi_Read_Check(num,w_UaRmsoffse,&att);
 
-//    dat[6] = att >> 8;
-//    dat[7] = att;
-//		printf("%lu \r\n",att);
-//		
-//    att = Ht7036_Spi_Read(w_IaRmsoffse);
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+    err|=Ht7036_Spi_Read_Check(num,w_UbRmsoffse,&att);
 
-//    dat[8] = att >> 8;
-//    dat[9] = att;
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+    err|=Ht7036_Spi_Read_Check(num,w_UcRmsoffse,&att);
 
-//		printf("%lu \r\n",att);		
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+		
+     err|=Ht7036_Spi_Read_Check(num,w_IaRmsoffse,&att);
 
-//    att = Ht7036_Spi_Read(w_UgainA);
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+     err|=Ht7036_Spi_Read_Check(num,w_IbRmsoffse,&att);
 
-//    dat[10] = att >> 8;
-//    dat[11] = att;
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+     err|=Ht7036_Spi_Read_Check(num,w_IcRmsoffse,&att);
 
-//		printf("%lu \r\n",att);
+    dat[i++] = att >> 8;
+    dat[i++] = att;
 
-//    att = Ht7036_Spi_Read(w_IgainA);
-//    dat[12] = att >> 8;
-//    dat[13] = att;
-// 
-//		printf("%lu \r\n",att);	
-//    att = Ht7036_Spi_Read(w_PgainA);
-//    dat[14] = att >> 8;
-//    dat[15] = att;
-// 		printf("%lu \r\n",att);
-//    att = Ht7036_Spi_Read(w_QgainA);
-//    dat[16] = att >> 8;
-//    dat[17] = att;
-//		printf("%lu \r\n",att);	 
-//    att = Ht7036_Spi_Read(w_PhSregApq0);
-//    dat[18] = att >> 8;
-//    dat[19] = att;
-//			printf("%lu \r\n",att);	
-//		
-//    att = Ht7036_Spi_Read(w_PhSregApq1);
-//    dat[20] = att >> 8;
-//    dat[21] = att;
-//			printf("%lu \r\n",att);
-//    dat[22] = crc_modbusrtu(dat, 22) >> 8;
-//    dat[23] = crc_modbusrtu(dat, 22);
 
-//    Ht7036_Spi_Write(0xC6, 0x000001);
+    err|=Ht7036_Spi_Read_Check(num,w_UgainA,&att);
 
-//		EA=0;
-//    EEPROM_write_n(0x000900, dat, 24);
-//		EA=1;
-//    Delay_ms(10);
-//		EA=0;
-//    EEPROM_read_n(0x000900, r_dat, 24);
-//		
-//		EA=1;
-//    if ((dat[0] == r_dat[0]) && (dat[1] == r_dat[1]) && (dat[22] == r_dat[22]) && (dat[23] == r_dat[23]))
-//        return 1;
-//    else
-//        return 0;
-//}
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+    err|=Ht7036_Spi_Read_Check(num,w_UgainB,&att);
+
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+    err|=Ht7036_Spi_Read_Check(num,w_UgainC,&att);
+
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+
+
+    err|= Ht7036_Spi_Read_Check(num,w_IgainA,&att);
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+    err|= Ht7036_Spi_Read_Check(num,w_IgainB,&att);
+    dat[i++] = att >> 8;
+    dat[i++] = att;
+    err|= Ht7036_Spi_Read_Check(num,w_IgainC,&att);
+    dat[i++] = att >> 8;
+    dat[i++] = att;		
+
+		err|= Ht7036_Spi_Read_Check(num,0x3e,&att);
+		dat[i++]= att >> 16;
+    dat[i++]= att>> 8;
+    dat[i++]= att;
+
+    err|= Ht7036_Spi_Read_Check(num,0x5e,&att);
+		dat[i++]= att >> 16;
+    dat[i++]= att>> 8;
+    dat[i++]= att;
+
+
+    dat[i++] = CRC8_Calc(dat, 30) >> 8;
+    dat[i++]= CRC8_Calc(dat, 30);
+
+    err|=Ht7036_Spi_Write_Check(num,0xC6, 0x000001);
+
+
+
+    if(FM31256_Write_Calib(num,dat,31))
+			err|=1;
+}
+	i=0;
+  
+
+
+    
+		err |= Ht7036_Spi_Read_Check(4, Rms_U, &att);   // 电压有效值
+    a.f_val=100.0/att;
+   dat[i++]=a.bytes[0];
+   dat[i++]=a.bytes[1];
+   dat[i++]=a.bytes[2];
+   dat[i++]=a.bytes[3];
+
+		err |= Ht7036_Spi_Read_Check(4, Rms_I1, &att);  // 电流有效值
+    a.f_val=5.0/att;
+   dat[i++]=a.bytes[0];
+   dat[i++]=a.bytes[1];
+   dat[i++]=a.bytes[2];
+   dat[i++]=a.bytes[3];
+
+
+
+		err |= Ht7036_Spi_Read_Check(4, PowerP1, &att);  // 有功功率
+		
+    a.f_val=500.0/att;
+   dat[i++]=a.bytes[0];
+   dat[i++]=a.bytes[1];
+   dat[i++]=a.bytes[2];
+   dat[i++]=a.bytes[3];
+	 
+	err |= Ht7036_Spi_Read_Check(4, SUMChecksum_Add_7053, &att);  // 电流有效值
+		dat[i++]= att >> 16;
+    dat[i++]= att>> 8;
+    dat[i++]= att;	
+    if(FM31256_Write_Calib(4,dat,16))
+			err|=1;
+  dat[0]=system_date.year;
+  dat[1]=system_date.month;
+  dat[2]=system_date.day;		
+	 err|=FM31256_FRAM_Write(FM31256_CALIB_VISON, dat  ,3);	
+		
+	  err|=FM31256_Write_Protect(1);//关闭写保护		
+ return err;
+
+}
 
 //void Ht7036_Energy_Clear(void)
 //{

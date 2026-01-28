@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 1   
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/28/2026 08:24:07 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE MODBUS
@@ -13,293 +13,400 @@ line level    source
    2          
    3          #include "modbus.h"
    4          #include "uart.h"
-   5          
-   6          
-   7          // Modbus相关定义
-   8          uint8_t modbus_slave_addr = 0x01;    // 从机地址（可修改）
-   9          
+   5          #include <intrins.h>
+   6          #include <string.h>
+   7          #include "data_save.h"
+   8          #include "data_deal.h"
+   9          /* ==================== 硬件适配宏（根据实际硬件调整） ==================== */
   10          
-  11          // 波特率变量（可动态修改）
-  12          uint32_t uart_baudrate = 9600;
-  13          
-  14          // Modbus接收缓冲区
-  15          uint8_t modbus_rx_buffer[MODBUS_RX_BUF_SIZE];
-  16          volatile uint8_t modbus_rx_index = 0;
-  17          volatile uint8_t modbus_rx_complete = 0;
-  18          volatile uint16_t modbus_timeout_counter = 0;
-  19          volatile uint8_t modbus_timer_active = 0;
-  20          
-  21          // Modbus寄存器数组（可修改）
-  22          uint16_t modbus_registers[100] = {0}; // 100个保持寄存器
-  23          
-  24          
-  25          
+  11          
+  12          #define TIMER10MS_TICK      10          /* 10ms定时器基准 */
+  13          #define MB_FRAME_TIMEOUT    4           /* 接收超时计数（4*10ms=40ms） */
+  14          
+  15          #define COM_LED_FLASH_TIME  10    // 指示灯亮的时长（10*10ms），可调整
+  16          
+  17          /* ==================== Modbus功能码定义 ==================== */
+  18          #define FUNC_CODE_READ_DISCRETE  0x02    /* 读离散量（实时状态） */
+  19          #define FUNC_CODE_READ_HOLD_REG  0x03    /* 读保持寄存器（事件记录） */
+  20          #define FUNC_CODE_READ_INPUT_REG 0x04    /* 读输入寄存器（实时数据） */
+  21          
+  22          /* ==================== 异常码定义 ==================== */
+  23          #define EXC_CODE_INVALID_FUNC    0x01    /* 无效功能码 */
+  24          #define EXC_CODE_INVALID_ADDR    0x02    /* 无效地址 */
+  25          #define EXC_CODE_INVALID_VALUE   0x03    /* 无效数值（数量超出范围） */
   26          
-  27          
-  28          // CRC16计算
-  29          uint16_t Modbus_CRC16(uint8_t *pucBuff, uint8_t unNum) {
-  30   1          uint16_t CRC_Value = 0;
-  31   1          uint8_t  i         = 0;
-  32   1          uint8_t  j         = 0;
-  33   1      
-  34   1          CRC_Value = 0xffff;
-  35   1          for(i=0;i<unNum;i++)  //
-  36   1          {
-  37   2              CRC_Value ^= *(pucBuff+i);
-  38   2              for(j=0;j<8;j++)
-  39   2              {
-  40   3                  if(CRC_Value & 0x00001)
-  41   3                      CRC_Value = (CRC_Value >> 1) ^ 0xA001;
-  42   3                  else
-  43   3                      CRC_Value = (CRC_Value >> 1);
-  44   3              }
-  45   2          }
-  46   1          CRC_Value = ((CRC_Value >> 8) +  (CRC_Value << 8)); //交换高低字节
-  47   1      
-  48   1          return CRC_Value;
-  49   1      }
-  50          
-  51          // Modbus接收超时检查
-  52          void Modbus_CheckTimeout() {
-  53   1          if(modbus_timer_active && modbus_timeout_counter >= MODBUS_TIMEOUT_MS) {
-C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 2   
+  27          volatile bit com_led_flag = 0;             // 闪灯触发标志
+  28          volatile uint8_t com_led_timer = 0;       // 闪灯定时器（10ms级）
+  29          /**
+  30           * @brief  组装Modbus响应帧并启动非阻塞发送（解决两次拷贝问题）
+  31           * @param  buf：响应帧数据（不含CRC）
+  32           * @param  len：响应帧长度（不含CRC）
+  33           * @note   1. 仅一次拷贝（若buf为临时缓冲区），或零拷贝（直接填tx_buf）；
+  34           *         2. 自动计算并追加CRC，无需手动处理；
+  35           *         3. 发送过程不阻塞，CPU可处理其他任务。
+  36           */
+  37          /**
+  38           * @brief  零拷贝版Modbus响应发送（直接用tx_buf，无拷贝）
+  39           * @param  len：tx_buf中已填充的响应长度（不含CRC）
+  40           * @note   调用前需确保：1. tx_state=0；2. 已往tx_buf填好数据；3. 填充时关了中断
+  41           */
+  42          void Send_Response(uint8_t len) {
+  43   1          uint16_t crc;
+  44   1          unsigned char SFRPAGE_SAVE = SFRPAGE;
+  45   1      
+  46   1          /* 合法性校验：发送中/缓冲区溢出/长度为0 */
+  47   1          if(tx_state != 0 || len + 2 > TX_BUF_SIZE || len == 0) {
+  48   2              return;
+  49   2          }
+  50   1      
+  51   1          SFRPAGE = UART0_PAGE;
+  52   1          EA = 0;  // 关中断，避免计算CRC时tx_buf被修改
+  53   1          /* 计算CRC并追加到tx_buf末尾（Modbus RTU：低字节在前） */
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/28/2026 08:24:07 PAGE 2   
 
-  54   2              // 超时，处理当前接收的数据包
-  55   2              if(modbus_rx_index > 0) {
-  56   3                  modbus_rx_complete = 1; // 标记接收完成
-  57   3              }
-  58   2              
-  59   2              // 重置超时计数器
-  60   2              modbus_timeout_counter = 0;
-  61   2              modbus_timer_active = 0;
-  62   2          }
-  63   1      }
-  64          
-  65          // 启动Modbus接收超时计时器
-  66          void Modbus_StartTimeout() {
-  67   1          modbus_timeout_counter = 0;
-  68   1          modbus_timer_active = 1;
-  69   1      }
+  54   1          crc = Modbus_CRC16(tx_buf, len);
+  55   1      
+  56   1          tx_buf[len] = (crc >> 8) & 0xFF;  // CRC高字节
+  57   1          tx_buf[len+1] = crc & 0xFF;    // CRC低字节   
+  58   1          EA = 1;
+  59   1      
+  60   1          /* 启动非阻塞发送（总长度=原始长度+2字节CRC） */
+  61   1          UART0_Start_Send(len + 2);
+  62   1      }
+  63          //void Send_Response(uint8_t *buf, uint8_t len) {
+  64          //    uint16_t crc;
+  65          //    uint8_t i;
+  66          //    /* 1. 校验缓冲区是否溢出（len+2 ≤ RESP_BUF_SIZE） */
+  67          //    if(len + 2 > RX_BUF_SIZE || buf == NULL || len == 0) {
+  68          //        return;
+  69          //    }
   70          
-  71          // 停止Modbus接收超时计时器
-  72          void Modbus_StopTimeout() {
-  73   1          modbus_timer_active = 0;
-  74   1          modbus_timeout_counter = 0;
-  75   1      }
+  71          //    /* 2. 仅一次拷贝（如果buf不是tx_buf，否则可省略！）
+  72          //       若调用处直接往tx_buf填数据，可删掉这个循环，实现零拷贝 */
+  73          //    for( i = 0; i < len; i++) {
+  74          //        rx_buf[i] = buf[i];
+  75          //    }
   76          
-  77          
-  78          
-  79          //// 定时器2中断服务程序（用于Modbus超时计数）
-  80          //void Timer2_ISR() interrupt 5 {
-  81          //    TF2H = 0; // 清除定时器2溢出标志
-  82          //    
-  83          //    // 更新Modbus超时计数器
-  84          //    if(modbus_timer_active) {
-  85          //        modbus_timeout_counter++;
-  86          //        
-  87          //        // 检查是否超时
-  88          //        if(modbus_timeout_counter >= MODBUS_TIMEOUT_MS) {
-  89          //            // 超时，标记接收完成
-  90          //            if(modbus_rx_index > 0) {
-  91          //                modbus_rx_complete = 1;
-  92          //            }
-  93          //            
-  94          //            // 重置计时器
-  95          //            modbus_timer_active = 0;
-  96          //        }
-  97          //    }
-  98          //}
-  99          
- 100          // 处理Modbus请求
- 101          void Modbus_ProcessRequest() {
- 102   1          if(modbus_rx_complete && modbus_rx_index >= 4) { // 最小Modbus帧长度
- 103   2              uint8_t slave_addr = modbus_rx_buffer[0];
- 104   2              
- 105   2              // 检查从机地址
- 106   2              if(slave_addr == modbus_slave_addr) {
- 107   3                  uint8_t function_code = modbus_rx_buffer[1];
- 108   3                  uint16_t crc_received = ((uint16_t)modbus_rx_buffer[modbus_rx_index-1] << 8) | 
- 109   3                                         modbus_rx_buffer[modbus_rx_index-2];
- 110   3                  
- 111   3                  // 验证CRC
- 112   3                  uint16_t crc_calculated = Modbus_CRC16(modbus_rx_buffer, modbus_rx_index-2);
- 113   3                  
- 114   3                  if(crc_received == crc_calculated) {
- 115   4                      // CRC正确，处理功能码
-C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 3   
+  77          //    /* 3. 计算CRC并追加到tx_buf末尾（Modbus RTU：低字节在前） */
+  78          //    crc = Modbus_CRC16(rx_buf, len);
+  79          
+  80          //    rx_buf[len] = (crc >> 8) & 0xFF;  // CRC高字节
+  81          //    rx_buf[len+1] = crc & 0xFF;    // CRC低字节
+  82          //    /* 4. 阻塞发送（tx_buf：原始数据+CRC，共len+2字节） */
+  83          //    UART0_SendBuf_Block(rx_buf, len + 2);
+  84          //}
+  85          
+  86          /* ==================== 组装异常响应帧（C89格式） ==================== */
+  87          void Build_Exception_Resp(uint8_t func_code, uint8_t exc_code)
+  88          {
+  89   1      
+  90   1          
+  91   1          tx_buf[0] = g_com.address;
+  92   1          tx_buf[1] = func_code | 0x80; /* 功能码MSB置1 */
+  93   1          tx_buf[2] = exc_code;
+  94   1          
+  95   1          Send_Response(3); /* 3字节（地址+异常功能码+异常码） */
+  96   1      }
+  97          
+  98          /* ==================== 解析02功能码（读实时状态，C89+大端序） ==================== */
+  99          uint8_t Parse_Func02(uint8_t *req_buf )
+ 100          {
+ 101   1          uint16_t start_addr;
+ 102   1          uint16_t reg_num;
+ 103   1          
+ 104   1          /* 校验请求格式：长度8字节 */
+ 105   1          if(rx_len != 8)
+ 106   1          {
+ 107   2              return 1;
+ 108   2          }
+ 109   1          
+ 110   1          /* 解析起始地址和寄存器数量（大端序拼接，接收字节流需手动拼） */
+ 111   1          start_addr = (req_buf[2] << 8) | req_buf[3];
+ 112   1          reg_num = (req_buf[4] << 8) | req_buf[5];
+ 113   1          
+ 114   1          /* 校验地址和数量（固定0000，000E） */
+ 115   1          if(start_addr != 0 || reg_num != 0x000E)
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/28/2026 08:24:07 PAGE 3   
 
- 116   4                      switch(function_code) {
- 117   5                          case 0x02: // 读离散输入
- 118   5                              Modbus_HandleReadDiscreteInputs();
- 119   5                              break;
- 120   5                          case 0x03: // 读保持寄存器
- 121   5                              Modbus_HandleReadHoldingRegisters();
- 122   5                              break;
- 123   5                          case 0x04: // 读输入寄存器
- 124   5                              Modbus_HandleReadInputRegisters();
- 125   5                              break;
- 126   5                          default:
- 127   5                              // 不支持的功能码，发送错误响应
- 128   5                              Modbus_SendError(function_code | 0x80, 0x01); // 非法功能
- 129   5                              break;
- 130   5                      }
- 131   4                  } else {
- 132   4                      // CRC错误，发送错误响应
- 133   4                      Modbus_SendError(function_code | 0x80, 0x02); // CRC错误
- 134   4                  }
- 135   3              }
- 136   2              
- 137   2              // 重置接收状态
- 138   2              modbus_rx_index = 0;
- 139   2              modbus_rx_complete = 0;
- 140   2              Modbus_StopTimeout();
- 141   2          }
- 142   1      }
- 143          
- 144          // 处理读离散输入请求
- 145          void Modbus_HandleReadDiscreteInputs() {
- 146   1          uint16_t i;
- 147   1          uint16_t start_addr ;
- 148   1          uint16_t num_inputs;
- 149   1          uint8_t response[255];
- 150   1          uint8_t byte_count; 
- 151   1          uint16_t crc;
- 152   1           start_addr = ((uint16_t)modbus_rx_buffer[2] << 8) | modbus_rx_buffer[3];
- 153   1           num_inputs = ((uint16_t)modbus_rx_buffer[4] << 8) | modbus_rx_buffer[5];
- 154   1          
- 155   1          if(num_inputs > 0 && num_inputs <= 2000) { // Modbus限制
- 156   2              // 计算需要的字节数
- 157   2               byte_count = (num_inputs + 7) / 8;
- 158   2              
- 159   2              // 构造响应
- 160   2      
- 161   2              response[0] = modbus_slave_addr;
- 162   2              response[1] = 0x02; // 功能码
- 163   2              response[2] = byte_count; // 字节数
- 164   2              
- 165   2              // 填充离散输入数据（示例：全部为0）
- 166   2      
- 167   2              for(i = 0; i < byte_count; i++) {
- 168   3                  response[3 + i] = 0x00; // 示例数据，实际应根据输入状态设置
- 169   3              }
+ 116   1          {
+ 117   2              return 1;
+ 118   2          }
+ 119   1          
+ 120   1          /* 组装响应帧：01 02 02 数据2 数据1（大端序直接填充） */
+ 121   1          tx_buf[0] = g_com.address;
+ 122   1          tx_buf[1] = FUNC_CODE_READ_DISCRETE;
+ 123   1          tx_buf[2] = 0x02; /* 数据长度（2字节） */
+ 124   1          tx_buf[3] = g_com_state>>8; /* 数据2（高字节） */
+ 125   1          tx_buf[4] = (uint8_t)g_com_state; /* 数据1（低字节） */
+ 126   1          
+ 127   1          Send_Response(5); /* 5字节（不含CRC） */
+ 128   1          return 0;
+ 129   1      }
+ 130          
+ 131          /* ==================== 解析04功能码（读实时数据，C89+大端序） ==================== */
+ 132          uint8_t Parse_Func04(uint8_t *req_buf)
+ 133          {
+ 134   1          uint16_t start_addr;
+ 135   1          uint16_t reg_num;
+ 136   1          uint8_t chn;
+ 137   1          uint32_t a,b,c;
+ 138   1          
+ 139   1          if(rx_len < 8)
+ 140   1          {
+ 141   2              return 1;
+ 142   2          }
+ 143   1          
+ 144   1          /* 解析起始地址和寄存器数量 */
+ 145   1          start_addr = (req_buf[2] << 8) | req_buf[3];
+ 146   1          reg_num = (req_buf[4] << 8) | req_buf[5];
+ 147   1          
+ 148   1          /* 分支1：读系统实时数据（01 04 0000 000A） */
+ 149   1          if(start_addr == 0 && reg_num == 0x000A)
+ 150   1          {
+ 151   2              /* 响应帧头：01 04 14 */
+ 152   2              tx_buf[0] = g_com.address;
+ 153   2              tx_buf[1] = FUNC_CODE_READ_INPUT_REG;
+ 154   2              tx_buf[2] = 0x14; /* 数据长度20字节 */
+ 155   2              
+ 156   2              /* 大端序直接拷贝（C51大端序，高字节在前） */
+ 157   2              memcpy(&tx_buf[3], &g_sys_data.q, 4);  /* 无功功率 */
+ 158   2              memcpy(&tx_buf[7], &g_sys_data.p, 4);    /* 有功功率 */
+ 159   2              memcpy(&tx_buf[11], &g_sys_data.u, 4);    /* 系统电压 */
+ 160   2              memcpy(&tx_buf[15], &g_sys_data.i, 4);    /* 系统电流 */
+ 161   2              memcpy(&tx_buf[19], &g_sys_data.c, 4);   /* 功率因数 */
+ 162   2              
+ 163   2              Send_Response( 23); /* 23字节（不含CRC） */
+ 164   2              return 0;
+ 165   2          }
+ 166   1          /* 分支2：读1~4路实时数据（0001/0002/0003/0004，0006） */
+ 167   1          else if((start_addr >= 1 && start_addr <= 4) && reg_num == 0x0006)
+ 168   1          {
+ 169   2              chn = start_addr - 1; /* 0=1路，1=2路，2=3路，3=4路 */
  170   2              
- 171   2              // 计算CRC
- 172   2              crc = Modbus_CRC16(response, 3 + byte_count);
- 173   2              response[3 + byte_count] = crc & 0xFF;
- 174   2              response[4 + byte_count] = (crc >> 8) & 0xFF;
- 175   2              
- 176   2              // 发送响应
- 177   2              UART0_SendArray(response, 5 + byte_count);
-C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 4   
+ 171   2              /* 响应帧头：01 04 0C */
+ 172   2              tx_buf[0] = g_com.address;
+ 173   2              tx_buf[1] = FUNC_CODE_READ_INPUT_REG;
+ 174   2              tx_buf[2] = 0x0C; /* 数据长度12字节 */
+ 175   2            
+ 176   2              a=g_cap_data[start_addr].ia/1000;
+ 177   2              b=g_cap_data[start_addr].ic/1000;
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/28/2026 08:24:07 PAGE 4   
 
- 178   2          } else {
- 179   2              // 发送错误响应
- 180   2              Modbus_SendError(0x82, 0x03); // 非法数据值
- 181   2          }
- 182   1      }
- 183          
- 184          // 处理读保持寄存器请求
- 185          void Modbus_HandleReadHoldingRegisters() {
- 186   1          uint8_t i;
- 187   1          uint16_t start_addr;
- 188   1          uint16_t num_regs;
- 189   1          uint16_t crc;
- 190   1           start_addr = ((uint16_t)modbus_rx_buffer[2] << 8) | modbus_rx_buffer[3];
- 191   1           num_regs = ((uint16_t)modbus_rx_buffer[4] << 8) | modbus_rx_buffer[5];
- 192   1          
- 193   1          if(num_regs > 0 && num_regs <= 125 && start_addr + num_regs <= 100) { // 检查边界
- 194   2              // 构造响应
- 195   2              uint8_t response[256];
- 196   2              response[0] = modbus_slave_addr;
- 197   2              response[1] = 0x03; // 功能码
- 198   2              response[2] = num_regs * 2; // 字节数
- 199   2              
- 200   2              // 填充寄存器数据
- 201   2      
- 202   2              for(i = 0; i < num_regs; i++) {
- 203   3                  response[3 + i*2] = (modbus_registers[start_addr + i] >> 8) & 0xFF;
- 204   3                  response[4 + i*2] = modbus_registers[start_addr + i] & 0xFF;
- 205   3              }
- 206   2              
- 207   2              // 计算CRC
- 208   2               crc = Modbus_CRC16(response, 3 + num_regs*2);
- 209   2              response[3 + num_regs*2] = crc & 0xFF;
- 210   2              response[4 + num_regs*2] = (crc >> 8) & 0xFF;
- 211   2              
- 212   2              // 发送响应
- 213   2              UART0_SendArray(response, 5 + num_regs*2);
- 214   2          } else {
- 215   2              // 发送错误响应
- 216   2              Modbus_SendError(0x83, 0x02); // 非法数据地址
- 217   2          }
- 218   1      }
- 219          
- 220          // 处理读输入寄存器请求
- 221          void Modbus_HandleReadInputRegisters() {
- 222   1           uint16_t crc;
- 223   1          uint16_t start_addr;
- 224   1        uint16_t num_regs;
- 225   1                 uint8_t i;
- 226   1                  uint8_t response[256];
- 227   1           start_addr = ((uint16_t)modbus_rx_buffer[2] << 8) | modbus_rx_buffer[3];
- 228   1           num_regs = ((uint16_t)modbus_rx_buffer[4] << 8) | modbus_rx_buffer[5];
- 229   1          
- 230   1          if(num_regs > 0 && num_regs <= 125 && start_addr + num_regs <= 100) { // 检查边界
- 231   2              // 构造响应
- 232   2      
- 233   2              response[0] = modbus_slave_addr;
- 234   2              response[1] = 0x04; // 功能码
- 235   2              response[2] = num_regs * 2; // 字节数
- 236   2              
- 237   2              // 填充寄存器数据（示例：返回与保持寄存器相同的值）
- 238   2      
- 239   2              for(i = 0; i < num_regs; i++) {
-C51 COMPILER V9.60.0.0   MODBUS                                                            01/09/2026 10:30:25 PAGE 5   
+ 178   2              c=g_cap_data[start_addr].uo*10;
+ 179   2            
+ 180   2            
+ 181   2              /* 大端序直接拷贝 */
+ 182   2              memcpy(&tx_buf[3], &a, 4);   /* A相电流 */
+ 183   2              memcpy(&tx_buf[7], &b, 4);   /* C相电流 */
+ 184   2              memcpy(&tx_buf[11], &c, 4); /* 零序电压 */
+ 185   2              
+ 186   2              Send_Response( 15); /* 15字节（不含CRC） */
+ 187   2              return 0;
+ 188   2          }
+ 189   1          
+ 190   1          return 1;
+ 191   1      }
+ 192          
+ 193          
+ 194          /* ==================== 解析03功能码（适配新Event_Log_Struct） ==================== */
+ 195          uint8_t Parse_Func03(uint8_t *req_buf) {
+ 196   1          /* C89：所有局部变量放在函数开头 */
+ 197   1          uint16_t start_addr;
+ 198   1          uint16_t reg_num;
+ 199   1          uint8_t chn;
+ 200   1          uint8_t i;
+ 201   1          uint8_t offset;
+ 202   1          Event_Log_Struct temp_event_20[20];  /* 最新20条事件 */
+ 203   1          Event_Log_Struct temp_chn_event;     /* 单路最新故障 */
+ 204   1      
+ 205   1          /* 校验请求长度 */
+ 206   1          if (rx_len < 8) {
+ 207   2              return 1;
+ 208   2          }
+ 209   1      
+ 210   1          /* 解析起始地址和寄存器数量 */
+ 211   1          start_addr = (req_buf[2] << 8) | req_buf[3];
+ 212   1          reg_num = (req_buf[4] << 8) | req_buf[5];
+ 213   1      
+ 214   1          /* 分支1：读20条事件记录（01 03 0000 0078） */
+ 215   1          if (start_addr == 0 && reg_num == 0x0078) {
+ 216   2              /* 响应帧头：01 03 F0（F0=240字节数据） */
+ 217   2              tx_buf[0] = g_com.address;
+ 218   2              tx_buf[1] = FUNC_CODE_READ_HOLD_REG;
+ 219   2              tx_buf[2] = 0xF0;
+ 220   2              offset = 3;
+ 221   2      
+ 222   2              /* 读取最新20条事件（适配新结构体） */
+ 223   2              (void)Read_Latest_20_Event_Logs(temp_event_20);
+ 224   2      
+ 225   2              /* 按协议填充20条事件（核心调整时间字段） */
+ 226   2              for (i = 0; i < 20; i++) {
+ 227   3                  /* 1. 故障类型（2字节：高字节在前） */
+ 228   3                  tx_buf[offset] = (temp_event_20[i].event_type >> 8) & 0xFF;  /* 高字节 */
+ 229   3                  tx_buf[offset + 1] = temp_event_20[i].event_type & 0xFF;     /* 低字节 */
+ 230   3                  offset += 2;
+ 231   3      
+ 232   3                  /* 2. 故障数据（4字节：最高字节→最低字节） */
+ 233   3                  tx_buf[offset] = (temp_event_20[i].event_data >> 24) & 0xFF; /* 最高字节 */
+ 234   3                  tx_buf[offset + 1] = (temp_event_20[i].event_data >> 16) & 0xFF;
+ 235   3                  tx_buf[offset + 2] = (temp_event_20[i].event_data >> 8) & 0xFF;
+ 236   3                  tx_buf[offset + 3] = temp_event_20[i].event_data & 0xFF;     /* 最低字节 */
+ 237   3                  offset += 4;
+ 238   3      
+ 239   3                  /* 3. 故障时间（6字节：year→month→day→hour→minute→second，按顺序填充） */
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/28/2026 08:24:07 PAGE 5   
 
- 240   3                  response[3 + i*2] = (modbus_registers[start_addr + i] >> 8) & 0xFF;
- 241   3                  response[4 + i*2] = modbus_registers[start_addr + i] & 0xFF;
- 242   3              }
- 243   2              
- 244   2              // 计算CRC
- 245   2               crc = Modbus_CRC16(response, 3 + num_regs*2);
- 246   2              response[3 + num_regs*2] = crc & 0xFF;
- 247   2              response[4 + num_regs*2] = (crc >> 8) & 0xFF;
- 248   2              
- 249   2              // 发送响应
- 250   2              UART0_SendArray(response, 5 + num_regs*2);
- 251   2          } else {
- 252   2              // 发送错误响应
- 253   2              Modbus_SendError(0x84, 0x02); // 非法数据地址
- 254   2          }
- 255   1      }
- 256          
- 257          // 发送Modbus错误响应
- 258          void Modbus_SendError(uint8_t function_code, uint8_t exception_code) {
- 259   1        
- 260   1          uint8_t error_response[5];
- 261   1           uint16_t crc;
- 262   1          error_response[0] = modbus_slave_addr;
- 263   1          error_response[1] = function_code;
- 264   1          error_response[2] = exception_code;
- 265   1          
- 266   1           crc = Modbus_CRC16(error_response, 3);
- 267   1          error_response[3] = crc & 0xFF;
- 268   1          error_response[4] = (crc >> 8) & 0xFF;
- 269   1          
- 270   1          UART0_SendArray(error_response, 5);
- 271   1      }
- 272          
- 273          
+ 240   3                  tx_buf[offset] = temp_event_20[i].year;    /* 年（完整年份，如2025） */
+ 241   3                  tx_buf[offset + 1] = temp_event_20[i].month; /* 月（1~12） */
+ 242   3                  tx_buf[offset + 2] = temp_event_20[i].day;   /* 日（1~31） */
+ 243   3                  tx_buf[offset + 3] = temp_event_20[i].hour;  /* 时（0~23） */
+ 244   3                  tx_buf[offset + 4] = temp_event_20[i].minute;/* 分（0~59） */
+ 245   3                  tx_buf[offset + 5] = temp_event_20[i].second;/* 秒（0~59） */
+ 246   3                  offset += 6;
+ 247   3              }
+ 248   2      
+ 249   2              /* 发送响应（243字节：不含CRC） */
+ 250   2              Send_Response( 243);
+ 251   2              return 0;
+ 252   2          }
+ 253   1      
+ 254   1          /* 分支2：读1~4路最新故障（0001/0002/0003/0004，0006） */
+ 255   1          else if ((start_addr >= 1 && start_addr <= 4) && reg_num == 0x0006) {
+ 256   2              chn = start_addr - 1;  /* 0=1路，1=2路... */
+ 257   2      
+ 258   2              /* 响应帧头：01 03 0C（12字节数据） */
+ 259   2              tx_buf[0] = g_com.address;
+ 260   2              tx_buf[1] = FUNC_CODE_READ_HOLD_REG;
+ 261   2              tx_buf[2] = 0x0C;
+ 262   2              offset = 3;
+ 263   2      
+ 264   2              /* 读取对应路最新故障（适配新结构体） */
+ 265   2              (void)Read_Chn_Latest_Event_Log(start_addr,&temp_chn_event);
+ 266   2      
+ 267   2              /* 填充单路故障数据（核心调整时间字段） */
+ 268   2              /* 1. 故障类型（2字节） */
+ 269   2              tx_buf[offset] = (temp_chn_event.event_type >> 8) & 0xFF;
+ 270   2              tx_buf[offset + 1] = temp_chn_event.event_type & 0xFF;
+ 271   2              offset += 2;
+ 272   2      
+ 273   2              /* 2. 故障数据（4字节） */
+ 274   2              tx_buf[offset] = (temp_chn_event.event_data >> 24) & 0xFF;
+ 275   2              tx_buf[offset + 1] = (temp_chn_event.event_data >> 16) & 0xFF;
+ 276   2              tx_buf[offset + 2] = (temp_chn_event.event_data >> 8) & 0xFF;
+ 277   2              tx_buf[offset + 3] = temp_chn_event.event_data & 0xFF;
+ 278   2              offset += 4;
+ 279   2      
+ 280   2              /* 3. 故障时间（6字节：按year→month→day→hour→minute→second填充） */
+ 281   2              tx_buf[offset] = temp_chn_event.year;
+ 282   2              tx_buf[offset + 1] = temp_chn_event.month;
+ 283   2              tx_buf[offset + 2] = temp_chn_event.day;
+ 284   2              tx_buf[offset + 3] = temp_chn_event.hour;
+ 285   2              tx_buf[offset + 4] = temp_chn_event.minute;
+ 286   2              tx_buf[offset + 5] = temp_chn_event.second;
+ 287   2      
+ 288   2              /* 发送响应（15字节：不含CRC） */
+ 289   2              Send_Response(15);
+ 290   2              return 0;
+ 291   2          }
+ 292   1      
+ 293   1          /* 地址/数量不匹配，返回异常 */
+ 294   1          return 1;
+ 295   1      }
+ 296          /* ==================== 帧解析主函数（非阻塞，C89格式） ==================== */
+ 297          void Frame_Parse_Main(void)
+ 298          {
+ 299   1          uint8_t func_code;
+ 300   1          uint16_t req_crc;
+ 301   1          uint16_t calc_crc;
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/28/2026 08:24:07 PAGE 6   
+
+ 302   1          uint8_t parse_ret;
+ 303   1          uint8_t req_buf[RX_BUF_SIZE];
+ 304   1          uint8_t i;
+ 305   1      
+ 306   1         if(tx_state != 0) 
+ 307   1          {
+ 308   2              return;
+ 309   2          }
+ 310   1        
+ 311   1          if(rx_state != 2) /* 无完整帧，直接返回 */
+ 312   1          {
+ 313   2              return;
+ 314   2          }
+ 315   1          
+ 316   1          /* 1. 拷贝接收数据到本地缓冲区（避免volatile影响） */
+ 317   1          for(i = 0; i < rx_len; i++)
+ 318   1          {
+ 319   2              req_buf[i] = rx_buf[i];
+ 320   2          }
+ 321   1          
+ 322   1          /* 2. 校验从机地址 */
+ 323   1          if(req_buf[0] != g_com.address)
+ 324   1          {
+ 325   2              /* 重置接收状态 */
+ 326   2              rx_state = 0;
+ 327   2              rx_len = 0;
+ 328   2              return;
+ 329   2          }
+ 330   1          
+ 331   1          LED_COM=0;    // 通讯灯亮
+ 332   1          com_led_flag = 1;            // 标记闪灯触发
+ 333   1          com_led_timer = COM_LED_FLASH_TIME; // 重置闪灯时长（100ms）  
+ 334   1          
+ 335   1          /* 3. 校验CRC（请求帧最后2字节是CRC） */
+ 336   1          req_crc = ((uint16_t)req_buf[rx_len-2] << 8) | req_buf[rx_len-1];
+ 337   1          calc_crc = Modbus_CRC16(req_buf, rx_len-2);
+ 338   1          if(req_crc != calc_crc)
+ 339   1          {
+ 340   2              rx_state = 0;
+ 341   2              rx_len = 0;
+ 342   2              return;
+ 343   2          }
+ 344   1          
+ 345   1          /* 4. 解析功能码 */
+ 346   1          func_code = req_buf[1];
+ 347   1          parse_ret = 1;
+ 348   1          
+ 349   1          switch(func_code)
+ 350   1          {
+ 351   2              case FUNC_CODE_READ_DISCRETE:
+ 352   2                  parse_ret = Parse_Func02(req_buf);
+ 353   2                  break;
+ 354   2              case FUNC_CODE_READ_INPUT_REG:
+ 355   2                  parse_ret = Parse_Func04(req_buf);
+ 356   2                  break;
+ 357   2              case FUNC_CODE_READ_HOLD_REG:
+ 358   2                  parse_ret = Parse_Func03(req_buf);
+ 359   2                  break;
+ 360   2              default:
+ 361   2                  /* 无效功能码，返回异常 */
+ 362   2                  Build_Exception_Resp(func_code, EXC_CODE_INVALID_FUNC);
+ 363   2                  parse_ret = 0; /* 异常已处理 */
+C51 COMPILER V9.60.0.0   MODBUS                                                            01/28/2026 08:24:07 PAGE 7   
+
+ 364   2                  break;
+ 365   2          }
+ 366   1          
+ 367   1          /* 5. 解析失败→返回异常 */
+ 368   1          if(parse_ret != 0)
+ 369   1          {
+ 370   2              Build_Exception_Resp(func_code, EXC_CODE_INVALID_ADDR);
+ 371   2          }
+ 372   1          
+ 373   1          /* 6. 重置接收状态 */
+ 374   1          rx_state = 0;
+ 375   1          rx_len = 0;
+ 376   1      }
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =   1348    ----
+   CODE SIZE        =   1916    ----
    CONSTANT SIZE    =   ----    ----
-   XDATA SIZE       =    466     797
+   XDATA SIZE       =      1     315
    PDATA SIZE       =   ----    ----
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----
-   BIT SIZE         =   ----    ----
+   BIT SIZE         =      1    ----
    EDATA SIZE       =   ----    ----
    HDATA SIZE       =   ----    ----
    XDATA CONST SIZE =   ----    ----

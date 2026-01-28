@@ -1,1 +1,0 @@
-"..\User\src\menu.c" LARGE OMF2 OPTIMIZE (5,SIZE) BROWSE NOINTPROMOTE INCDIR(..\Mdk;..\User\inc;..\Modbus;..\Driver\font;..\Driver\bsp\inc;..\Driver\device\inc) DEBUG PRINT(.\Listings\menu.lst) TABS (2) OBJECT(.\Objects\menu.obj)

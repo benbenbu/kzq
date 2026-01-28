@@ -246,7 +246,7 @@ sbit SPI_IRQ4 =P4^3;
 // 7053 EMUIF寄存器标志位
 #define HT7053_FLAG_SPI_ERR    0x01  // SPI通讯错误
 #define HT7053_FLAG_VOLT_ZERO  0x02  // 电压过零
-#define HT7053_FLAG_VALID_UPD  0x80  // 有效值更新
+#define HT7053_FLAG_VALID_UPD  0x800  // 有效值更新
 #define HT7053_FLAG_CURR_ZERO  0x400 // 电流过零
 
 
@@ -280,23 +280,24 @@ typedef enum {
 
 // 单芯片监控数据
 typedef struct {
-    uint8_t chip_id;          // 芯片编号（1~4）
-    ChipType type;            // 芯片类型（7036/7053）
+
     uint8_t err_flag;         // 错误标志（0-正常，1-spi通讯错误 2-未校表）
     uint8_t data_ready;	      //采集到数据标志
     uint32_t check1;	      //校表和1
     uint32_t check2;	      //校表和2	
-	  uint32_t read_state_err;  //读写状态错误次数
 	  uint32_t read_data_err;  //读写数据错误次数	
     // 计量数据存储（根据实际需求扩展）
     uint32_t u_a;             // A相电压有效值（V）
-    uint32_t u_b;             // B相电压有效值（V）
+    uint32_t u_b;             // B相电压有效值（V） 7053时代替 gain_u
     uint32_t u_c;             // C相电压有效值（V）
     uint32_t i_a;             // A相电流有效值（A）
     uint32_t i_b;             // B相电流有效值（A）
     uint32_t i_c;             // C相电流有效值（A）
     uint32_t rp;             // 有功	
     uint32_t rq;  // 无功功率（mVar）
+	  float g_w;
+	  float g_u;   
+	  float g_i;	 
 	
 } MeterChipStatus;
 
@@ -311,7 +312,7 @@ uint8_t Ht7036_init(void);
 
 
 char Ht7036_Config(u8 num);
-void Ht7036_Read(void);
+void Ht7036_read(char num);
 void Ht7036_Adj_Zero(void);
 char Ht7036_Zero_Check(void);
 void Ht7036_Adj_Gain(void);
